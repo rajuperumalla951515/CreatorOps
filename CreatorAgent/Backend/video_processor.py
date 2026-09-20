@@ -77,6 +77,11 @@ def download_youtube(
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb", "web"],
+            }
+        },
     }
 
     if progress_callback:
@@ -117,16 +122,20 @@ def download_youtube(
             info = downloader.extract_info(url, download=True)
             downloaded = Path(downloader.prepare_filename(info))
     except DownloadError as error:
-        # Fallback: if range downloading failed due to keyframe cut alignment, retry full video download
-        if "download_ranges" in options:
-            del options["download_ranges"]
+        error_msg = str(error)
+        # Fallback 1: HTTP 403 Forbidden or keyframe cut failure -> Retry with alternative client
+        if "HTTP Error 403" in error_msg or "403" in error_msg or "download_ranges" in options:
+            if "download_ranges" in options:
+                del options["download_ranges"]
+            options["extractor_args"] = {"youtube": {"player_client": ["android", "mweb"]}}
             try:
                 with yt_dlp.YoutubeDL(options) as downloader:
                     info = downloader.extract_info(url, download=True)
                     downloaded = Path(downloader.prepare_filename(info))
             except DownloadError as fallback_error:
                 error = fallback_error
-        error_msg = str(error)
+                error_msg = str(fallback_error)
+
         if "Could not copy" in error_msg and "cookie database" in error_msg:
             b_name = browser.capitalize() if browser else "Chrome"
             raise RuntimeError(
