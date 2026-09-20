@@ -13,6 +13,9 @@ import shutil
 
 
 def ffmpeg_path() -> str:
+    sys_ffmpeg = shutil.which("ffmpeg")
+    if sys_ffmpeg:
+        return sys_ffmpeg
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
