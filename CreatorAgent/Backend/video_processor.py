@@ -125,40 +125,36 @@ def download_youtube(
             downloaded = Path(downloader.prepare_filename(info))
     except DownloadError as error:
         error_msg = str(error)
-        
-        # Fallback Attempts Strategy for 403 Forbidden & Cloud Deployment Blocking
-        is_403_or_stream_err = any(k in error_msg for k in ["HTTP Error 403", "403", "Forbidden", "download_ranges", "unable to download video data"])
-        
-        if is_403_or_stream_err:
-            # Fallback 1: Remove download_ranges if present, try mweb + ios + tv clients
-            options_fb1 = dict(options)
-            options_fb1.pop("download_ranges", None)
-            options_fb1["extractor_args"] = {"youtube": {"player_client": ["mweb", "ios", "tv"]}}
+        # Comprehensive Fallback Strategy for YouTube Extractor Errors (403, page reload, bot check, etc.)
+        # Attempt 1 failed -> Fallback 1: Remove download_ranges if present, try TV + iOS + Mobile Web clients
+        options_fb1 = dict(options)
+        options_fb1.pop("download_ranges", None)
+        options_fb1["extractor_args"] = {"youtube": {"player_client": ["tv", "ios", "mweb"]}}
+        try:
+            with yt_dlp.YoutubeDL(options_fb1) as downloader:
+                info = downloader.extract_info(url, download=True)
+                downloaded = Path(downloader.prepare_filename(info))
+        except DownloadError:
+            # Fallback 2: Remove cookie file (in case default_cookies is invalid/expired/flagged) & try TV + iOS
+            options_fb2 = dict(options_fb1)
+            options_fb2.pop("cookiefile", None)
+            options_fb2.pop("cookiesfrombrowser", None)
+            options_fb2["extractor_args"] = {"youtube": {"player_client": ["tv", "ios"]}}
             try:
-                with yt_dlp.YoutubeDL(options_fb1) as downloader:
+                with yt_dlp.YoutubeDL(options_fb2) as downloader:
                     info = downloader.extract_info(url, download=True)
                     downloaded = Path(downloader.prepare_filename(info))
             except DownloadError:
-                # Fallback 2: Remove cookie file (in case default_cookies is invalid/flagged on cloud IP) & try tv + mweb
-                options_fb2 = dict(options_fb1)
-                options_fb2.pop("cookiefile", None)
-                options_fb2.pop("cookiesfrombrowser", None)
-                options_fb2["extractor_args"] = {"youtube": {"player_client": ["tv", "mweb"]}}
+                # Fallback 3: Reset extractor args to let yt-dlp use default engine
+                options_fb3 = dict(options_fb2)
+                options_fb3.pop("extractor_args", None)
                 try:
-                    with yt_dlp.YoutubeDL(options_fb2) as downloader:
+                    with yt_dlp.YoutubeDL(options_fb3) as downloader:
                         info = downloader.extract_info(url, download=True)
                         downloaded = Path(downloader.prepare_filename(info))
-                except DownloadError:
-                    # Fallback 3: Reset extractor args to let yt-dlp use default engine
-                    options_fb3 = dict(options_fb2)
-                    options_fb3.pop("extractor_args", None)
-                    try:
-                        with yt_dlp.YoutubeDL(options_fb3) as downloader:
-                            info = downloader.extract_info(url, download=True)
-                            downloaded = Path(downloader.prepare_filename(info))
-                    except DownloadError as final_error:
-                        error = final_error
-                        error_msg = str(final_error)
+                except DownloadError as final_error:
+                    error = final_error
+                    error_msg = str(final_error)
 
         if "Could not copy" in error_msg and "cookie database" in error_msg:
             b_name = browser.capitalize() if browser else "Chrome"
@@ -167,9 +163,9 @@ def download_youtube(
                 f"Please CLOSE {b_name} completely (including background tasks in Windows Task Manager), "
                 "or upload a cookies.txt file, or set YouTube sign-in to 'None', then try again."
             ) from error
-        elif "Sign in to confirm you" in error_msg or "bot" in error_msg.lower():
+        elif "Sign in to confirm you" in error_msg or "bot" in error_msg.lower() or "reloaded" in error_msg.lower():
             raise RuntimeError(
-                "YouTube requested bot verification ('Sign in to confirm you're not a bot'). "
+                "YouTube requested page reload or bot verification ('Sign in to confirm you're not a bot'). "
                 "To resolve this on cloud deployments:\n"
                 "1. Export your cookies from YouTube using a browser extension ('Get cookies.txt LOCALLY').\n"
                 "2. Upload the exported cookies.txt file in the app sidebar.\n"
