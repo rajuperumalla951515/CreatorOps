@@ -84,7 +84,7 @@ def download_youtube(
         },
         "extractor_args": {
             "youtube": {
-                "player_client": ["mweb", "ios", "tv", "web"],
+                "player_client": ["android", "ios", "web"],
             }
         },
     }
@@ -126,20 +126,20 @@ def download_youtube(
     except DownloadError as error:
         error_msg = str(error)
         # Comprehensive Fallback Strategy for YouTube Extractor Errors (403, page reload, bot check, etc.)
-        # Attempt 1 failed -> Fallback 1: Remove download_ranges if present, try TV + iOS + Mobile Web clients
+        # Attempt 1 failed -> Fallback 1: Remove download_ranges if present, try android_creator + android + ios
         options_fb1 = dict(options)
         options_fb1.pop("download_ranges", None)
-        options_fb1["extractor_args"] = {"youtube": {"player_client": ["tv", "ios", "mweb"]}}
+        options_fb1["extractor_args"] = {"youtube": {"player_client": ["android_creator", "android", "ios"]}}
         try:
             with yt_dlp.YoutubeDL(options_fb1) as downloader:
                 info = downloader.extract_info(url, download=True)
                 downloaded = Path(downloader.prepare_filename(info))
         except DownloadError:
-            # Fallback 2: Remove cookie file (in case default_cookies is invalid/expired/flagged) & try TV + iOS
+            # Fallback 2: Remove cookie file (in case default_cookies is invalid/expired/flagged) & try android + ios
             options_fb2 = dict(options_fb1)
             options_fb2.pop("cookiefile", None)
             options_fb2.pop("cookiesfrombrowser", None)
-            options_fb2["extractor_args"] = {"youtube": {"player_client": ["tv", "ios"]}}
+            options_fb2["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
             try:
                 with yt_dlp.YoutubeDL(options_fb2) as downloader:
                     info = downloader.extract_info(url, download=True)
