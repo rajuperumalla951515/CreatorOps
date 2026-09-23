@@ -50,6 +50,7 @@ def has_audio(video: Path) -> bool:
 
 
 from typing import Callable
+import sys
 
 
 def download_youtube(
@@ -69,7 +70,7 @@ def download_youtube(
     if ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
-    options = {
+    base_options = {
         "format": "bv*+ba/b",
         "merge_output_format": "mp4",
         "outtmpl": str(output_dir / f"{filename_prefix}.%(ext)s"),
@@ -82,11 +83,6 @@ def download_youtube(
             "User-Agent": user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9",
         },
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios", "web"],
-            }
-        },
     }
 
     if progress_callback:
@@ -98,91 +94,116 @@ def download_youtube(
                 eta = d.get("_eta_str", "").strip()
                 msg = f"[download]  {percent} of  {total} at    {speed} ETA {eta}".strip()
                 progress_callback(msg)
-        options["progress_hooks"] = [hook]
-
-    if start_seconds or end_seconds:
-        s = start_seconds or 0.0
-        e = end_seconds if (end_seconds and end_seconds > s) else None
-        if e is not None:
-            options["download_ranges"] = yt_dlp.utils.download_range_func(None, [(s, e)])
+        base_options["progress_hooks"] = [hook]
 
     js_runtimes = get_js_runtimes()
     if js_runtimes:
-        options["js_runtimes"] = js_runtimes
+        base_options["js_runtimes"] = js_runtimes
 
+    # Helper function to construct attempt options dictionary
+    def make_opts(cookie_source: tuple[str, str] | None, player_clients: list[str] | None, use_range: bool) -> dict:
+        opts = dict(base_options)
+        if use_range and (start_seconds or end_seconds):
+            s = start_seconds or 0.0
+            e = end_seconds if (end_seconds and end_seconds > s) else None
+            if e is not None:
+                opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(s, e)])
+        if player_clients:
+            opts["extractor_args"] = {"youtube": {"player_client": player_clients}}
+        if cookie_source:
+            kind, val = cookie_source
+            if kind == "file":
+                opts["cookiefile"] = val
+            elif kind == "browser":
+                opts["cookiesfrombrowser"] = (val,)
+        return opts
+
+    primary_cookie_source: tuple[str, str] | None = None
     if cookie_file and cookie_file.exists():
-        options["cookiefile"] = str(cookie_file)
+        primary_cookie_source = ("file", str(cookie_file))
+    elif browser and browser.lower() != "none":
+        primary_cookie_source = ("browser", browser.lower())
     else:
         default_ck = Path(__file__).parent / "default_cookies.txt"
         if default_ck.exists():
-            options["cookiefile"] = str(default_ck)
-        elif browser:
-            options["cookiesfrombrowser"] = (browser,)
+            primary_cookie_source = ("file", str(default_ck))
 
-    try:
-        with yt_dlp.YoutubeDL(options) as downloader:
-            info = downloader.extract_info(url, download=True)
-            downloaded = Path(downloader.prepare_filename(info))
-    except DownloadError as error:
-        error_msg = str(error)
-        # Comprehensive Fallback Strategy for YouTube Extractor Errors (403, page reload, bot check, etc.)
-        # Attempt 1 failed -> Fallback 1: Remove download_ranges if present, try android_creator + android + ios
-        options_fb1 = dict(options)
-        options_fb1.pop("download_ranges", None)
-        options_fb1["extractor_args"] = {"youtube": {"player_client": ["android_creator", "android", "ios"]}}
+    attempts: list[dict] = []
+
+    # Tier 1: Primary cookie source + range download + standard clients
+    if primary_cookie_source:
+        attempts.append(make_opts(primary_cookie_source, ["android", "ios", "web"], use_range=True))
+        attempts.append(make_opts(primary_cookie_source, ["android", "ios", "web"], use_range=False))
+
+    # Tier 2: Clean request without cookies (bypasses browser locks & expired cookie files)
+    attempts.append(make_opts(None, ["android", "ios", "web"], use_range=True))
+    attempts.append(make_opts(None, ["android", "ios", "web"], use_range=False))
+
+    # Tier 3: Mobile & Creator clients without cookies
+    attempts.append(make_opts(None, ["android_creator", "android", "ios", "mweb"], use_range=False))
+
+    # Tier 4: TV & Web clients without cookies
+    attempts.append(make_opts(None, ["tv", "web"], use_range=False))
+
+    # Tier 5: Default yt-dlp extractor settings
+    attempts.append(make_opts(None, None, use_range=False))
+
+    last_exception: Exception | None = None
+    downloaded: Path | None = None
+
+    for opts in attempts:
         try:
-            with yt_dlp.YoutubeDL(options_fb1) as downloader:
+            with yt_dlp.YoutubeDL(opts) as downloader:
                 info = downloader.extract_info(url, download=True)
-                downloaded = Path(downloader.prepare_filename(info))
-        except DownloadError:
-            # Fallback 2: Remove cookie file (in case default_cookies is invalid/expired/flagged) & try android + ios
-            options_fb2 = dict(options_fb1)
-            options_fb2.pop("cookiefile", None)
-            options_fb2.pop("cookiesfrombrowser", None)
-            options_fb2["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
-            try:
-                with yt_dlp.YoutubeDL(options_fb2) as downloader:
-                    info = downloader.extract_info(url, download=True)
-                    downloaded = Path(downloader.prepare_filename(info))
-            except DownloadError:
-                # Fallback 3: Reset extractor args to let yt-dlp use default engine
-                options_fb3 = dict(options_fb2)
-                options_fb3.pop("extractor_args", None)
-                try:
-                    with yt_dlp.YoutubeDL(options_fb3) as downloader:
-                        info = downloader.extract_info(url, download=True)
-                        downloaded = Path(downloader.prepare_filename(info))
-                except DownloadError as final_error:
-                    error = final_error
-                    error_msg = str(final_error)
+                prep_path = Path(downloader.prepare_filename(info))
+                if prep_path.exists():
+                    downloaded = prep_path
+                    break
+                # Check for output match in output_dir if filename was adjusted by yt-dlp
+                matches = list(output_dir.glob(f"{filename_prefix}.*"))
+                if matches:
+                    downloaded = matches[0]
+                    break
+        except Exception as error:
+            last_exception = error
+            continue
 
-        if "Could not copy" in error_msg and "cookie database" in error_msg:
-            b_name = browser.capitalize() if browser else "Chrome"
-            raise RuntimeError(
-                f"Could not access {b_name} cookies because the browser is currently running. "
-                f"Please CLOSE {b_name} completely (including background tasks in Windows Task Manager), "
-                "or upload a cookies.txt file, or set YouTube sign-in to 'None', then try again."
-            ) from error
-        elif "Sign in to confirm you" in error_msg or "bot" in error_msg.lower() or "reloaded" in error_msg.lower():
-            raise RuntimeError(
-                "YouTube requested page reload or bot verification ('Sign in to confirm you're not a bot'). "
-                "To resolve this on cloud deployments:\n"
-                "1. Export your cookies from YouTube using a browser extension ('Get cookies.txt LOCALLY').\n"
-                "2. Upload the exported cookies.txt file in the app sidebar.\n"
-                "3. Try rendering again."
-            ) from error
-        else:
-            raise RuntimeError(f"YouTube download failed: {error}") from error
+    if not downloaded or not downloaded.exists():
+        # Final Subprocess CLI Fallback if Python API attempts fail
+        try:
+            cmd = [
+                sys.executable,
+                "-m",
+                "yt_dlp",
+                "--format",
+                "bv*+ba/b",
+                "--merge-output-format",
+                "mp4",
+                "--output",
+                str(output_dir / f"{filename_prefix}.%(ext)s"),
+                "--no-playlist",
+                "--quiet",
+                "--no-warnings",
+                url,
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+            matches = list(output_dir.glob(f"{filename_prefix}.*"))
+            if matches:
+                downloaded = matches[0]
+        except Exception as error:
+            error_msg = str(last_exception or error)
+            raise RuntimeError(f"YouTube download failed after retrying all fallback engines: {error_msg}") from error
+
+    if not downloaded or not downloaded.exists():
+        matches = list(output_dir.glob(f"{filename_prefix}.*"))
+        if not matches:
+            raise FileNotFoundError("The YouTube download did not produce a video file.")
+        downloaded = matches[0]
 
     mp4_file = downloaded.with_suffix(".mp4")
     if mp4_file.exists():
         return mp4_file
-    if downloaded.exists():
-        return downloaded
-    matches = list(output_dir.glob(f"{filename_prefix}.*"))
-    if not matches:
-        raise FileNotFoundError("The YouTube download did not produce a video file.")
-    return matches[0]
+    return downloaded
 
 
 def save_upload(uploaded_file: object, destination: Path) -> Path:

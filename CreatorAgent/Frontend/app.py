@@ -153,7 +153,7 @@ with st.sidebar:
     browser_cookie_option = st.selectbox(
         "YouTube sign-in",
         ["None", "Chrome", "Edge", "Firefox", "Brave"],
-        help="Use this if YouTube requests sign-in verification. Close your browser completely before downloading, as open browsers lock cookie files on Windows.",
+        help="Use this to extract sign-in cookies from your browser. The app automatically handles open browsers with clean fallback downloading.",
     )
     cookie_file_upload = st.file_uploader(
         "Or upload cookies.txt (optional)",
