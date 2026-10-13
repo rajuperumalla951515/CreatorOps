@@ -6,6 +6,11 @@ import sys
 import tempfile
 import time
 import uuid
+
+# Relax strict oauthlib scope equality check when Google includes OpenID/profile scopes
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

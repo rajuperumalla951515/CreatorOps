@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Relax strict oauthlib scope equality check when Google includes OpenID/profile scopes
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -20,8 +24,11 @@ load_dotenv(_CURR_DIR.parent / ".env")
 load_dotenv(_CURR_DIR.parents[1] / ".env")
 load_dotenv()
 
-# Scopes required for Channel profile, reading videos, and uploading to YouTube
+# Scopes required for Channel profile, reading videos, uploading, and Google OIDC profile
 YOUTUBE_SCOPES = [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/youtube.upload",
 ]
