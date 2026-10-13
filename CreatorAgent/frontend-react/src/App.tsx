@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, Link } from 'react-router-dom';
+import { supabase } from './utils/supabase';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { DashboardLayout } from './components/DashboardLayout';
@@ -73,6 +74,17 @@ const NotFound: React.FC = () => {
 };
 
 export default function App() {
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        localStorage.setItem('tubepilot_supabase_token', session.access_token);
+      } else if (_event === 'SIGNED_OUT') {
+        localStorage.removeItem('tubepilot_supabase_token');
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <BrowserRouter>
       <OAuthHandler />
