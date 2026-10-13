@@ -1,3 +1,16 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.9
+pydantic>=2.0.0
+google-api-python-client>=2.100.0
+google-auth>=2.25.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
 imageio-ffmpeg>=0.5.1
-streamlit>=1.53.0
 yt-dlp>=2025.2.19
+streamlit>=1.35.0
+requests>=2.31.0
+supabase>=2.32.0
+httpx>=0.28.0
+pyjwt>=2.15.0

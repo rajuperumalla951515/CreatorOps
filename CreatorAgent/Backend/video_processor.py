@@ -10,6 +10,17 @@ from yt_dlp.utils import DownloadError
 
 import os
 import shutil
+from pathlib import Path
+import subprocess
+
+from dotenv import load_dotenv
+
+# Load environment variables (.env) from backend, project root, and workspace root
+_CURR_DIR = Path(__file__).resolve().parent
+load_dotenv(_CURR_DIR / ".env")
+load_dotenv(_CURR_DIR.parent / ".env")
+load_dotenv(_CURR_DIR.parents[1] / ".env")
+load_dotenv()
 
 
 def ffmpeg_path() -> str:
@@ -124,9 +135,22 @@ def download_youtube(
     elif browser and browser.lower() != "none":
         primary_cookie_source = ("browser", browser.lower())
     else:
-        default_ck = Path(__file__).parent / "default_cookies.txt"
-        if default_ck.exists():
-            primary_cookie_source = ("file", str(default_ck))
+        # Check environment variable for cookie file path
+        env_ck_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
+        env_ck_text = os.getenv("YOUTUBE_COOKIES_TEXT", "").strip()
+        if env_ck_file and Path(env_ck_file).exists():
+            primary_cookie_source = ("file", str(Path(env_ck_file).resolve()))
+        elif env_ck_text:
+            try:
+                env_cookie_path = output_dir / "env_cookies.txt"
+                env_cookie_path.write_text(env_ck_text, encoding="utf-8")
+                primary_cookie_source = ("file", str(env_cookie_path))
+            except Exception:
+                pass
+        else:
+            default_ck = Path(__file__).parent / "default_cookies.txt"
+            if default_ck.exists():
+                primary_cookie_source = ("file", str(default_ck))
 
     attempts: list[dict] = []
 
@@ -211,6 +235,54 @@ def save_upload(uploaded_file: object, destination: Path) -> Path:
     return destination
 
 
+def make_crop_filter(
+    in_stream: str,
+    w: int,
+    h: int,
+    mode: str = "cover",
+    x_pct: float = 50.0,
+    y_pct: float = 50.0,
+    zoom: float = 1.0,
+    crop_x1_pct: float | None = None,
+    crop_y1_pct: float | None = None,
+    crop_x2_pct: float | None = None,
+    crop_y2_pct: float | None = None,
+    out_name: str = "v",
+) -> str:
+    if mode == "contain":
+        return f"[{in_stream}]scale={w}:{h}:force_original_aspect_ratio=decrease,pad=w='max({w},iw)':h='max({h},ih)':x='(ow-iw)/2':y='(oh-ih)/2':color=black,crop={w}:{h},setsar=1[{out_name}];"
+    elif mode == "top":
+        return f"[{in_stream}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:x='(iw-ow)/2':y=0,setsar=1[{out_name}];"
+    elif mode == "bottom":
+        return f"[{in_stream}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:x='(iw-ow)/2':y='ih-oh',setsar=1[{out_name}];"
+    elif mode == "custom":
+        if crop_x1_pct is not None and crop_y1_pct is not None and crop_x2_pct is not None and crop_y2_pct is not None:
+            x1p = max(0.0, min(100.0, float(crop_x1_pct))) / 100.0
+            y1p = max(0.0, min(100.0, float(crop_y1_pct))) / 100.0
+            x2p = max(0.0, min(100.0, float(crop_x2_pct))) / 100.0
+            y2p = max(0.0, min(100.0, float(crop_y2_pct))) / 100.0
+            if x2p <= x1p:
+                x2p = min(1.0, x1p + 0.05)
+            if y2p <= y1p:
+                y2p = min(1.0, y1p + 0.05)
+            ow_expr = f"iw*{(x2p - x1p):.4f}"
+            oh_expr = f"ih*{(y2p - y1p):.4f}"
+            x_expr = f"iw*{x1p:.4f}"
+            y_expr = f"ih*{y1p:.4f}"
+            return f"[{in_stream}]crop=w='{ow_expr}':h='{oh_expr}':x='{x_expr}':y='{y_expr}',scale={w}:{h},setsar=1[{out_name}];"
+        else:
+            z = max(float(zoom), 1.0)
+            xp = max(0.0, min(100.0, float(x_pct))) / 100.0
+            yp = max(0.0, min(100.0, float(y_pct))) / 100.0
+            ow_expr = f"min(iw, ih*{w}/{h}/{z:.2f})"
+            oh_expr = f"min(ih, iw*{h}/{w}/{z:.2f})"
+            x_expr = f"(iw-ow)*{xp:.4f}"
+            y_expr = f"(ih-oh)*{yp:.4f}"
+            return f"[{in_stream}]crop=w='{ow_expr}':h='{oh_expr}':x='{x_expr}':y='{y_expr}',scale={w}:{h},setsar=1[{out_name}];"
+    else:  # "cover" / center crop
+        return f"[{in_stream}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}:x='(iw-ow)/2':y='(ih-oh)/2',setsar=1[{out_name}];"
+
+
 def build_video_advanced(
     source1: Path,
     source2: Path | None,
@@ -228,6 +300,14 @@ def build_video_advanced(
     music_volume: float = 0.18,
     pip_position: str = "Bottom right",
     pip_size: float = 0.35,
+    crop_mode: str = "cover",
+    crop_x_pct: float = 50.0,
+    crop_y_pct: float = 50.0,
+    crop_zoom: float = 1.0,
+    crop_x1_pct: float | None = None,
+    crop_y1_pct: float | None = None,
+    crop_x2_pct: float | None = None,
+    crop_y2_pct: float | None = None,
 ) -> None:
     width, height = {
         "9:16": (1080, 1920),
@@ -275,8 +355,8 @@ def build_video_advanced(
             top_in, bot_in = "0:v", "1:v"
             
         filter_complex_parts.append(
-            f"[{top_in}]scale={width}:{h_top}:force_original_aspect_ratio=decrease,pad=w='max({width},iw)':h='max({h_top},ih)':x='(ow-iw)/2':y='(oh-ih)/2':color=black,crop={width}:{h_top},setsar=1[v_top];"
-            f"[{bot_in}]scale={width}:{h_bot}:force_original_aspect_ratio=increase,crop={width}:{h_bot},setsar=1[v_bot];"
+            make_crop_filter(top_in, width, h_top, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="v_top") +
+            make_crop_filter(bot_in, width, h_bot, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="v_bot") +
             f"[v_top][v_bot]vstack=inputs=2[video]"
         )
     elif layout == "split_v" and source2:
@@ -290,8 +370,8 @@ def build_video_advanced(
             top_in, bot_in = "0:v", "1:v"
             
         filter_complex_parts.append(
-            f"[{top_in}]scale={width}:{h_top}:force_original_aspect_ratio=increase,crop={width}:{h_top},setsar=1[v_top];"
-            f"[{bot_in}]scale={width}:{h_bot}:force_original_aspect_ratio=increase,crop={width}:{h_bot},setsar=1[v_bot];"
+            make_crop_filter(top_in, width, h_top, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="v_top") +
+            make_crop_filter(bot_in, width, h_bot, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="v_bot") +
             f"[v_top][v_bot]vstack=inputs=2[video]"
         )
     elif layout == "split_h" and source2:
@@ -304,8 +384,8 @@ def build_video_advanced(
             left_in, right_in = "0:v", "1:v"
             
         filter_complex_parts.append(
-            f"[{left_in}]scale={w_left}:{height}:force_original_aspect_ratio=increase,crop={w_left}:{height},setsar=1[v_left];"
-            f"[{right_in}]scale={w_right}:{height}:force_original_aspect_ratio=increase,crop={w_right}:{height},setsar=1[v_right];"
+            make_crop_filter(left_in, w_left, height, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="v_left") +
+            make_crop_filter(right_in, w_right, height, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="v_right") +
             f"[v_left][v_right]hstack=inputs=2[video]"
         )
     elif layout == "pip" and source2:
@@ -324,14 +404,14 @@ def build_video_advanced(
         pos = pos_map.get(pip_position, f"{width}-w-32:{height}-h-32")
         
         filter_complex_parts.append(
-            f"[{main_in}]scale={width}:{height}:force_original_aspect_ratio=decrease,pad=w='max({width},iw)':h='max({height},ih)':x='(ow-iw)/2':y='(oh-ih)/2':color=black,crop={width}:{height},setsar=1[main_v];"
-            f"[{ov_in}]scale={w_ov}:-2,setsar=1[ov_v];"
+            make_crop_filter(main_in, width, height, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="main_v") +
+            f"[{ov_in}]scale={w_ov}:-2,setsar=1[ov_v];" +
             f"[main_v][ov_v]overlay={pos}[video]"
         )
     else:
         # Single video fallback or single input mode
         filter_complex_parts.append(
-            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad=w='max({width},iw)':h='max({height},ih)':x='(ow-iw)/2':y='(oh-ih)/2':color=black,crop={width}:{height},setsar=1[video]"
+            make_crop_filter("0:v", width, height, mode=crop_mode, x_pct=crop_x_pct, y_pct=crop_y_pct, zoom=crop_zoom, crop_x1_pct=crop_x1_pct, crop_y1_pct=crop_y1_pct, crop_x2_pct=crop_x2_pct, crop_y2_pct=crop_y2_pct, out_name="video")
         )
 
     # AUDIO FILTER LOGIC

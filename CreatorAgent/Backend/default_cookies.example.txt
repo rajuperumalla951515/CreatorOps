@@ -1,0 +1,11 @@
+# Netscape HTTP Cookie File
+# This is an example cookies template file for yt-dlp.
+# DO NOT COMMIT YOUR REAL COOKIES TO GIT!
+#
+# To use your own YouTube session cookies:
+# 1. Export cookies from your browser using an extension like "Get cookies.txt LOCALLY".
+# 2. Save the real cookie file as "CreatorAgent/Backend/default_cookies.txt" (gitignored).
+#    OR set YOUTUBE_COOKIES_FILE or YOUTUBE_COOKIES_TEXT in your .env file.
+#
+# Example cookie format:
+# .youtube.com	TRUE	/	TRUE	1899999999	__Secure-3PSID	EXAMPLE_COOKIE_VALUE_HERE

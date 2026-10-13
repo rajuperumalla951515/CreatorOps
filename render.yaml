@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: tubepilot-ai-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: CREATOR_ACCESS_KEY
+        generateValue: true
+      - key: SUPABASE_URL
+        value: https://xepcqtvzehjnijdvjcfe.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: sb_publishable_e77cpinfc4g9cV8s2vTQBw_BXDdlq38
+      - key: YOUTUBE_CLIENT_ID
+        sync: false
+      - key: YOUTUBE_CLIENT_SECRET
+        sync: false
+      - key: YOUTUBE_REDIRECT_URI
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "*"

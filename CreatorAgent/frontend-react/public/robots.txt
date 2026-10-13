@@ -1,0 +1,22 @@
+# TubePilot AI Production Robots Directives
+User-agent: *
+Allow: /
+Allow: /features
+Allow: /how-it-works
+Allow: /ai-agents
+Allow: /pricing
+Allow: /blog
+Allow: /about
+Allow: /contact
+Allow: /privacy
+Allow: /terms
+Allow: /copyright
+Allow: /cookies
+
+# Disallow Private Authenticated Studio & Internal API Endpoints
+Disallow: /app/
+Disallow: /api/
+Disallow: /tmp/
+
+# Canonical Sitemap Reference
+Sitemap: https://tubepilot.ai/sitemap.xml
