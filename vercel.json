@@ -7,6 +7,14 @@
   },
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://tubepilot-ai.onrender.com/api/$1"
+    },
+    {
+      "source": "/health",
+      "destination": "https://tubepilot-ai.onrender.com/health"
+    },
+    {
       "source": "/(.*)",
       "destination": {
         "service": "frontend-react"

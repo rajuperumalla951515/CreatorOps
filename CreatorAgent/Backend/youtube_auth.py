@@ -31,7 +31,6 @@ TOKEN_FILE_PATH = TOKEN_STORE_DIR / "youtube_token.json"
 CLIENT_SECRET_FILE_PATH = TOKEN_STORE_DIR / "client_secret.json"
 VERIFIER_FILE_PATH = TOKEN_STORE_DIR / "code_verifier.txt"
 
-
 def get_client_id() -> str:
     """Retrieve Google OAuth Client ID from environment variables or local credentials file."""
     env_val = os.getenv("YOUTUBE_CLIENT_ID", "").strip()
@@ -41,9 +40,10 @@ def get_client_id() -> str:
         try:
             with open(CLIENT_SECRET_FILE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                info = data.get("installed") or data.get("web") or {}
-                if info.get("client_id"):
-                    return str(info["client_id"]).strip()
+                info = data.get("web") or data.get("installed") or {}
+                cid = str(info.get("client_id", "")).strip()
+                if cid:
+                    return cid
         except Exception:
             pass
     return ""
@@ -58,7 +58,7 @@ def get_client_secret() -> str:
         try:
             with open(CLIENT_SECRET_FILE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                info = data.get("installed") or data.get("web") or {}
+                info = data.get("web") or data.get("installed") or {}
                 if info.get("client_secret"):
                     return str(info["client_secret"]).strip()
         except Exception:

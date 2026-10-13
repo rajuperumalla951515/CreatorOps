@@ -224,10 +224,14 @@ export const api = {
   },
 
   // YouTube
-  getYoutubeAuthUrl: async (state?: string): Promise<{ auth_url: string; code_verifier?: string }> => {
+  getYoutubeAuthUrl: async (
+    state?: string,
+    redirectUri?: string
+  ): Promise<{ auth_url: string; code_verifier?: string }> => {
     const params = new URLSearchParams();
     if (state) params.set('state', state);
-    const queryString = params.toString() ? `?${params.toString()}` : '';
+    params.set('redirect_uri', redirectUri || window.location.origin);
+    const queryString = `?${params.toString()}`;
     return request<{ auth_url: string; code_verifier?: string }>(`/api/youtube/auth-url${queryString}`);
   },
 

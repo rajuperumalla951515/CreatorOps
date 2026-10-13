@@ -438,10 +438,20 @@ def api_cancel_job(job_id: str):
 # YouTube Authentication & Publishing (Official Data API v3)
 # ==============================================================================
 
+def resolve_yt_redirect(requested_uri: Optional[str] = None) -> str:
+    """Resolve redirect URI prioritizing frontend parameter, falling back to Vercel/env."""
+    if requested_uri and requested_uri.strip() and requested_uri.strip() != "undefined":
+        return requested_uri.strip().rstrip('/')
+    env_redirect = os.getenv("YOUTUBE_REDIRECT_URI", "").strip()
+    if env_redirect and "onrender.com" not in env_redirect:
+        return env_redirect.rstrip('/')
+    return "https://creator-ops-5x9u.vercel.app"
+
+
 @app.get("/api/youtube/login")
-def direct_yt_login(redirect_uri: str = "http://localhost:5173", state: Optional[str] = None):
+def direct_yt_login(redirect_uri: Optional[str] = None, state: Optional[str] = None):
     try:
-        effective_redirect = os.getenv("YOUTUBE_REDIRECT_URI", redirect_uri).strip()
+        effective_redirect = resolve_yt_redirect(redirect_uri)
         auth_url, _ = get_authorization_url(redirect_uri=effective_redirect, state=state)
         return RedirectResponse(url=auth_url, status_code=307)
     except Exception as e:
@@ -450,12 +460,12 @@ def direct_yt_login(redirect_uri: str = "http://localhost:5173", state: Optional
 
 @app.get("/api/youtube/auth-url")
 def get_yt_auth_url(
-    redirect_uri: str = "http://localhost:5173",
+    redirect_uri: Optional[str] = None,
     state: Optional[str] = None,
     user_id: str = Depends(optional_creator_access),
 ):
     try:
-        effective_redirect = os.getenv("YOUTUBE_REDIRECT_URI", redirect_uri).strip()
+        effective_redirect = resolve_yt_redirect(redirect_uri)
         auth_url, flow = get_authorization_url(redirect_uri=effective_redirect, state=state)
         verifier = getattr(flow, "code_verifier", None)
         return {"auth_url": auth_url, "code_verifier": verifier}
@@ -465,14 +475,14 @@ def get_yt_auth_url(
 
 class AuthCallbackPayload(BaseModel):
     code: str
-    redirect_uri: str = "http://localhost:5173"
+    redirect_uri: Optional[str] = None
     code_verifier: Optional[str] = None
 
 
 @app.post("/api/youtube/callback")
 def handle_yt_callback(payload: AuthCallbackPayload, user_id: str = Depends(optional_creator_access)):
     try:
-        effective_redirect = os.getenv("YOUTUBE_REDIRECT_URI", payload.redirect_uri).strip()
+        effective_redirect = resolve_yt_redirect(payload.redirect_uri)
         creds = process_oauth_callback(
             code=payload.code,
             redirect_uri=effective_redirect,

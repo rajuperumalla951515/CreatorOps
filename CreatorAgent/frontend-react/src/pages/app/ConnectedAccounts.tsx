@@ -51,7 +51,7 @@ export const ConnectedAccounts: React.FC = () => {
   const handleConnect = async () => {
     setIsConnecting(true);
     try {
-      const res = await api.getYoutubeAuthUrl(window.location.pathname);
+      const res = await api.getYoutubeAuthUrl(window.location.pathname, window.location.origin);
       if (res.code_verifier) {
         sessionStorage.setItem('yt_code_verifier', res.code_verifier);
       }
@@ -59,7 +59,7 @@ export const ConnectedAccounts: React.FC = () => {
     } catch (err: any) {
       console.warn('API auth-url request failed, attempting direct login route:', err);
       try {
-        window.location.href = `${API_BASE}/api/youtube/login?state=${encodeURIComponent(window.location.pathname)}`;
+        window.location.href = `${API_BASE}/api/youtube/login?redirect_uri=${encodeURIComponent(window.location.origin)}&state=${encodeURIComponent(window.location.pathname)}`;
         return;
       } catch {
         // Continue to alert
