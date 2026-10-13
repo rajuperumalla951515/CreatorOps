@@ -26,7 +26,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPE
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # Load environment variables (.env) from backend, project root, and workspace root
 _CURR_DIR = Path(__file__).resolve().parent
@@ -652,6 +652,29 @@ def api_get_publishing_history(limit: int = 50, user_id: str = Depends(verify_cr
 # Video Processing & Render Engine (Legacy + Pipeline Integration)
 # ==============================================================================
 
+def _parse_time_val(v: Any, default: float = 0.0) -> float:
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return default
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            if len(parts) == 2:
+                return float(parts[0]) * 60 + float(parts[1])
+            if len(parts) == 3:
+                return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+        except ValueError:
+            return default
+    try:
+        return float(s)
+    except ValueError:
+        return default
+
+
 class RenderOptions(BaseModel):
     v1_url: str = ""
     v2_url: str = ""
@@ -678,6 +701,12 @@ class RenderOptions(BaseModel):
     browser_cookie_option: str = "None"
     user_agent: str = ""
     project_id: Optional[str] = None
+
+    @field_validator("v1_start", "v1_end", "v2_start", "v2_end", mode="before")
+    @classmethod
+    def validate_time_fields(cls, v: Any, info) -> float:
+        default = 15.0 if "end" in info.field_name else 0.0
+        return _parse_time_val(v, default)
 
 
 @app.post("/api/estimate")
@@ -853,30 +882,12 @@ async def start_render(
     try:
         if options_json and options_json.strip():
             raw_options = json.loads(options_json)
+            if isinstance(raw_options, dict):
+                for k in ["v1_start", "v1_end", "v2_start", "v2_end"]:
+                    if k in raw_options:
+                        raw_options[k] = _parse_time_val(raw_options[k], 15.0 if "end" in k else 0.0)
             options = RenderOptions(**raw_options)
         else:
-            def to_seconds(val: Any, default: float = 0.0) -> float:
-                if val is None:
-                    return default
-                if isinstance(val, (int, float)):
-                    return float(val)
-                s = str(val).strip()
-                if not s:
-                    return default
-                if ":" in s:
-                    parts = s.split(":")
-                    try:
-                        if len(parts) == 2:
-                            return float(parts[0]) * 60 + float(parts[1])
-                        if len(parts) == 3:
-                            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-                    except ValueError:
-                        return default
-                try:
-                    return float(s)
-                except ValueError:
-                    return default
-
             effective_ratio = ratio_code or aspect_ratio or "9:16"
             effective_slot = v1_slot or v1_slot_code or "top"
 
@@ -894,10 +905,10 @@ async def start_render(
                 crop_x2_pct=crop_x2_pct,
                 crop_y2_pct=crop_y2_pct,
                 v1_slot_code=effective_slot,
-                v1_start=to_seconds(v1_start, 0.0),
-                v1_end=to_seconds(v1_end, 15.0),
-                v2_start=to_seconds(v2_start, 0.0),
-                v2_end=to_seconds(v2_end, 15.0),
+                v1_start=_parse_time_val(v1_start, 0.0),
+                v1_end=_parse_time_val(v1_end, 15.0),
+                v2_start=_parse_time_val(v2_start, 0.0),
+                v2_end=_parse_time_val(v2_end, 15.0),
                 v1_vol=float(v1_vol) if v1_vol is not None else 1.0,
                 v2_vol=float(v2_vol) if v2_vol is not None else 1.0,
                 music_vol=float(music_vol) if music_vol is not None else 0.25,

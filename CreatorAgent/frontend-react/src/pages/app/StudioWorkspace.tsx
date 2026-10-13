@@ -491,13 +491,28 @@ export const StudioWorkspace: React.FC = () => {
     formData.append('pip_corner', pipCorner);
     formData.append('pip_scale', String(pipScale));
 
+    const parseSeconds = (str: string, defaultVal: number = 0): number => {
+      if (!str) return defaultVal;
+      const parts = str.split(':').map((p) => parseFloat(p.trim()));
+      if (parts.some((n) => isNaN(n))) return defaultVal;
+      if (parts.length === 1) return parts[0];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return defaultVal;
+    };
+
+    const v1StartSec = parseSeconds(v1StartStr, 0);
+    const v1EndSec = parseSeconds(v1EndStr, 15);
+    const v2StartSec = parseSeconds(v2StartStr, 0);
+    const v2EndSec = parseSeconds(v2EndStr, 15);
+
     if (v1File) {
       formData.append('v1_file', v1File);
     } else {
       formData.append('v1_url', v1Url);
     }
-    formData.append('v1_start', v1StartStr);
-    formData.append('v1_end', v1EndStr);
+    formData.append('v1_start', String(v1StartSec));
+    formData.append('v1_end', String(v1EndSec));
     formData.append('v1_vol', String(v1Vol));
 
     if (v2File) {
@@ -505,8 +520,8 @@ export const StudioWorkspace: React.FC = () => {
     } else if (v2Url) {
       formData.append('v2_url', v2Url);
     }
-    formData.append('v2_start', v2StartStr);
-    formData.append('v2_end', v2EndStr);
+    formData.append('v2_start', String(v2StartSec));
+    formData.append('v2_end', String(v2EndSec));
     formData.append('v2_vol', String(v2Vol));
 
     if (musicFile) {
@@ -525,12 +540,12 @@ export const StudioWorkspace: React.FC = () => {
       pip_corner: pipCorner,
       pip_scale: pipScale,
       v1_url: v1File ? '' : v1Url,
-      v1_start: v1StartStr,
-      v1_end: v1EndStr,
+      v1_start: v1StartSec,
+      v1_end: v1EndSec,
       v1_vol: v1Vol,
       v2_url: v2File ? '' : v2Url,
-      v2_start: v2StartStr,
-      v2_end: v2EndStr,
+      v2_start: v2StartSec,
+      v2_end: v2EndSec,
       v2_vol: v2Vol,
       music_vol: musicVol,
     };
