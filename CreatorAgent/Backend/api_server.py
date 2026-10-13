@@ -818,18 +818,95 @@ def process_render_task(
 @app.post("/api/render")
 async def start_render(
     background_tasks: BackgroundTasks,
-    options_json: str = Form(...),
+    options_json: Optional[str] = Form(None),
+    aspect_ratio: Optional[str] = Form(None),
+    ratio_code: Optional[str] = Form(None),
+    layout_mode: Optional[str] = Form("top_landscape"),
+    crop_mode: Optional[str] = Form("cover"),
+    crop_x_pct: Optional[float] = Form(50.0),
+    crop_y_pct: Optional[float] = Form(50.0),
+    crop_zoom: Optional[float] = Form(1.0),
+    crop_x1_pct: Optional[float] = Form(None),
+    crop_y1_pct: Optional[float] = Form(None),
+    crop_x2_pct: Optional[float] = Form(None),
+    crop_y2_pct: Optional[float] = Form(None),
+    v1_slot: Optional[str] = Form(None),
+    v1_slot_code: Optional[str] = Form(None),
+    pip_corner: Optional[str] = Form("Bottom right"),
+    pip_scale: Optional[float] = Form(0.35),
+    v1_url: Optional[str] = Form(""),
+    v2_url: Optional[str] = Form(""),
+    v1_start: Optional[Any] = Form("0.0"),
+    v1_end: Optional[Any] = Form("15.0"),
+    v2_start: Optional[Any] = Form("0.0"),
+    v2_end: Optional[Any] = Form("15.0"),
+    v1_vol: Optional[float] = Form(1.0),
+    v2_vol: Optional[float] = Form(1.0),
+    music_vol: Optional[float] = Form(0.25),
+    project_id: Optional[str] = Form(None),
     v1_file: Optional[UploadFile] = File(None),
     v2_file: Optional[UploadFile] = File(None),
     music_file: Optional[UploadFile] = File(None),
     cookie_file: Optional[UploadFile] = File(None),
-    user_id: str = Depends(verify_creator_access),
+    user_id: str = Depends(optional_creator_access),
 ):
     try:
-        raw_options = json.loads(options_json)
-        options = RenderOptions(**raw_options)
+        if options_json and options_json.strip():
+            raw_options = json.loads(options_json)
+            options = RenderOptions(**raw_options)
+        else:
+            def to_seconds(val: Any, default: float = 0.0) -> float:
+                if val is None:
+                    return default
+                if isinstance(val, (int, float)):
+                    return float(val)
+                s = str(val).strip()
+                if not s:
+                    return default
+                if ":" in s:
+                    parts = s.split(":")
+                    try:
+                        if len(parts) == 2:
+                            return float(parts[0]) * 60 + float(parts[1])
+                        if len(parts) == 3:
+                            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                    except ValueError:
+                        return default
+                try:
+                    return float(s)
+                except ValueError:
+                    return default
+
+            effective_ratio = ratio_code or aspect_ratio or "9:16"
+            effective_slot = v1_slot or v1_slot_code or "top"
+
+            options = RenderOptions(
+                v1_url=v1_url or "",
+                v2_url=v2_url or "",
+                layout_mode=layout_mode or "top_landscape",
+                ratio_code=effective_ratio,
+                crop_mode=crop_mode or "cover",
+                crop_x_pct=float(crop_x_pct) if crop_x_pct is not None else 50.0,
+                crop_y_pct=float(crop_y_pct) if crop_y_pct is not None else 50.0,
+                crop_zoom=float(crop_zoom) if crop_zoom is not None else 1.0,
+                crop_x1_pct=crop_x1_pct,
+                crop_y1_pct=crop_y1_pct,
+                crop_x2_pct=crop_x2_pct,
+                crop_y2_pct=crop_y2_pct,
+                v1_slot_code=effective_slot,
+                v1_start=to_seconds(v1_start, 0.0),
+                v1_end=to_seconds(v1_end, 15.0),
+                v2_start=to_seconds(v2_start, 0.0),
+                v2_end=to_seconds(v2_end, 15.0),
+                v1_vol=float(v1_vol) if v1_vol is not None else 1.0,
+                v2_vol=float(v2_vol) if v2_vol is not None else 1.0,
+                music_vol=float(music_vol) if music_vol is not None else 0.25,
+                pip_corner=pip_corner or "Bottom right",
+                pip_scale=float(pip_scale) if pip_scale is not None else 0.35,
+                project_id=project_id,
+            )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid render options JSON: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid render parameters: {e}")
 
     task_id = str(uuid.uuid4())
     temp_dir = Path(tempfile.gettempdir()) / f"creatorops_{task_id}"
@@ -885,6 +962,7 @@ async def start_render(
     return {"task_id": task_id, "status": "queued"}
 
 
+@app.get("/api/render/{task_id}")
 @app.get("/api/render/status/{task_id}")
 def get_task_status(task_id: str):
     if task_id in RENDER_TASKS:

@@ -514,6 +514,28 @@ export const StudioWorkspace: React.FC = () => {
       formData.append('music_vol', String(musicVol));
     }
 
+    const optionsObj = {
+      ratio_code: aspectRatio,
+      layout_mode: 'top_landscape',
+      crop_mode: cropMode,
+      crop_x_pct: cropXPct,
+      crop_y_pct: cropYPct,
+      crop_zoom: cropZoom,
+      v1_slot_code: v1SlotCode,
+      pip_corner: pipCorner,
+      pip_scale: pipScale,
+      v1_url: v1File ? '' : v1Url,
+      v1_start: v1StartStr,
+      v1_end: v1EndStr,
+      v1_vol: v1Vol,
+      v2_url: v2File ? '' : v2Url,
+      v2_start: v2StartStr,
+      v2_end: v2EndStr,
+      v2_vol: v2Vol,
+      music_vol: musicVol,
+    };
+    formData.append('options_json', JSON.stringify(optionsObj));
+
     try {
       const res = await fetch(`${API_BASE}/api/render`, {
         method: 'POST',
@@ -526,7 +548,19 @@ export const StudioWorkspace: React.FC = () => {
         setActiveTaskId(data.task_id);
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(`Render initiation failed: ${err.detail || 'Check parameters'}`);
+        let errorMsg = 'Check parameters';
+        if (typeof err.detail === 'string') {
+          errorMsg = err.detail;
+        } else if (Array.isArray(err.detail)) {
+          errorMsg = err.detail
+            .map((d: any) => `${d.loc ? d.loc.slice(-1).join('') + ': ' : ''}${d.msg || JSON.stringify(d)}`)
+            .join('; ');
+        } else if (err.detail && typeof err.detail === 'object') {
+          errorMsg = JSON.stringify(err.detail);
+        } else if (err.message) {
+          errorMsg = err.message;
+        }
+        alert(`Render initiation failed: ${errorMsg}`);
         setIsRendering(false);
       }
     } catch (e) {
