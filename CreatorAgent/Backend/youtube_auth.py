@@ -101,12 +101,12 @@ def get_oauth_flow(
         )
 
     client_config = {
-        "installed": {
+        "web": {
             "client_id": effective_id,
             "client_secret": effective_secret,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [redirect_uri, "urn:ietf:wg:oauth:2.0:oob"],
+            "redirect_uris": [redirect_uri],
         }
     }
     flow = Flow.from_client_config(
