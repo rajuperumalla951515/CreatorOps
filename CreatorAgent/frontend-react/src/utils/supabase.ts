@@ -22,6 +22,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
  * Authentication Helpers
  */
 export async function signUpWithEmail(email: string, password: string, displayName?: string) {
+  const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/app` : undefined;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -29,6 +30,7 @@ export async function signUpWithEmail(email: string, password: string, displayNa
       data: {
         display_name: displayName || email.split('@')[0],
       },
+      emailRedirectTo: redirectUrl,
     },
   });
   if (error) throw error;

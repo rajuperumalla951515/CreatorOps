@@ -38,12 +38,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
           onClose();
         }, 800);
       } else if (mode === 'signup') {
-        await signUpWithEmail(email, password, fullName);
-        setSuccessMessage('Registration successful! Please check your email inbox to verify your account.');
+        const data = await signUpWithEmail(email, password, fullName);
+        if (data?.session?.access_token) {
+          localStorage.setItem('tubepilot_supabase_token', data.session.access_token);
+          setSuccessMessage('Account created and signed in successfully!');
+        } else {
+          setSuccessMessage('Registration submitted! If confirmation is enabled, check your inbox/spam folder. You can also log in directly or use your Creator Key.');
+        }
         setTimeout(() => {
           onSuccess?.();
           onClose();
-        }, 1500);
+        }, 1200);
       } else if (mode === 'key') {
         if (!accessKey.trim()) {
           throw new Error('Please enter your Creator Access Key.');
