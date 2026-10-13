@@ -370,21 +370,41 @@ CREATE POLICY "user_pref_insert" ON public.user_preferences FOR INSERT WITH CHEC
 CREATE POLICY "user_pref_update" ON public.user_preferences FOR UPDATE USING (auth.uid() = user_id OR auth.role() = 'service_role');
 
 -- ==============================================================================
--- AUTOMATIC PROFILE CREATION TRIGGER
+-- AUTOMATIC PROFILE CREATION TRIGGER (Extracts Full Name & Google Avatar)
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+    extracted_name TEXT;
+    extracted_avatar TEXT;
 BEGIN
+    -- Extract real display name from Google OAuth metadata
+    extracted_name := COALESCE(
+        NULLIF(NEW.raw_user_meta_data->>'full_name', ''),
+        NULLIF(NEW.raw_user_meta_data->>'name', ''),
+        NULLIF(NEW.raw_user_meta_data->>'display_name', ''),
+        NULLIF(CONCAT_WS(' ', NEW.raw_user_meta_data->>'given_name', NEW.raw_user_meta_data->>'family_name'), ''),
+        split_part(NEW.email, '@', 1)
+    );
+
+    -- Extract avatar picture from Google OAuth metadata
+    extracted_avatar := COALESCE(
+        NULLIF(NEW.raw_user_meta_data->>'avatar_url', ''),
+        NULLIF(NEW.raw_user_meta_data->>'picture', ''),
+        ''
+    );
+
     INSERT INTO public.profiles (id, email, display_name, avatar_url)
     VALUES (
         NEW.id,
         NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
-        COALESCE(NEW.raw_user_meta_data->>'avatar_url', '')
+        extracted_name,
+        extracted_avatar
     )
     ON CONFLICT (id) DO UPDATE SET
-        display_name = EXCLUDED.display_name,
-        avatar_url = EXCLUDED.avatar_url,
+        email = EXCLUDED.email,
+        display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), public.profiles.display_name),
+        avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), public.profiles.avatar_url),
         updated_at = NOW();
 
     INSERT INTO public.user_preferences (user_id)
@@ -399,6 +419,25 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Sync existing users from auth.users metadata into public.profiles
+UPDATE public.profiles p
+SET 
+    display_name = COALESCE(
+        NULLIF(u.raw_user_meta_data->>'full_name', ''),
+        NULLIF(u.raw_user_meta_data->>'name', ''),
+        NULLIF(u.raw_user_meta_data->>'display_name', ''),
+        NULLIF(CONCAT_WS(' ', u.raw_user_meta_data->>'given_name', u.raw_user_meta_data->>'family_name'), ''),
+        p.display_name
+    ),
+    avatar_url = COALESCE(
+        NULLIF(u.raw_user_meta_data->>'avatar_url', ''),
+        NULLIF(u.raw_user_meta_data->>'picture', ''),
+        p.avatar_url
+    ),
+    updated_at = NOW()
+FROM auth.users u
+WHERE p.id = u.id;
 
 -- ==============================================================================
 -- REAL-TIME PUBLICATION (Enable for Live Dashboard Sync)

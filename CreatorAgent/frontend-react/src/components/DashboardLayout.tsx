@@ -316,33 +316,79 @@ export const DashboardLayout: React.FC = () => {
           {currentUser ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '50%',
-                    backgroundColor: '#7C3AED',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: '#fff',
-                    flexShrink: 0,
-                  }}
-                >
-                  {(currentUser.email || 'U')[0].toUpperCase()}
-                </div>
-                {!collapsed && (
-                  <div style={{ overflow: 'hidden' }}>
-                    <div style={{ fontSize: '0.78rem', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                      {currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0]}
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                      {currentUser.email}
-                    </div>
-                  </div>
-                )}
+                {(() => {
+                  const userName =
+                    currentUser.user_metadata?.full_name ||
+                    currentUser.user_metadata?.name ||
+                    currentUser.user_metadata?.display_name ||
+                    currentUser.email?.split('@')[0] ||
+                    'Creator';
+                  const userAvatar =
+                    currentUser.user_metadata?.avatar_url ||
+                    currentUser.user_metadata?.picture ||
+                    '';
+
+                  return (
+                    <>
+                      <div
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          backgroundColor: '#7C3AED',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          color: '#fff',
+                          flexShrink: 0,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {userAvatar ? (
+                          <img
+                            src={userAvatar}
+                            alt={userName}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          userName[0].toUpperCase()
+                        )}
+                      </div>
+                      {!collapsed && (
+                        <div style={{ overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              fontSize: '0.78rem',
+                              color: '#fff',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                              overflow: 'hidden',
+                            }}
+                            title={userName}
+                          >
+                            {userName}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '0.7rem',
+                              color: 'var(--text-muted)',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                              overflow: 'hidden',
+                            }}
+                            title={currentUser.email}
+                          >
+                            {currentUser.email}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               {!collapsed && (
                 <button
