@@ -46,6 +46,22 @@ export async function signInWithEmail(email: string, password: string) {
   return data;
 }
 
+export async function signInWithGoogle() {
+  const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/app` : undefined;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: redirectUrl,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
