@@ -442,7 +442,8 @@ def build_video_advanced(
     else:
         audio_map = []
 
-    filter_complex_str = ";".join(filter_complex_parts)
+    cleaned_parts = [p.strip("; \r\n\t") for p in filter_complex_parts if p.strip("; \r\n\t")]
+    filter_complex_str = ";".join(cleaned_parts)
 
     cmd = [
         *inputs,
