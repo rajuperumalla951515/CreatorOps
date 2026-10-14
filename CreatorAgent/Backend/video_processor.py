@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import ipaddress
+import logging
+import os
+import shutil
+import socket
 import subprocess
+import sys
+import tempfile
+import urllib.parse
 from pathlib import Path
+from typing import Callable, Optional
 
+from dotenv import load_dotenv
+import httpx
 import imageio_ffmpeg
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
-
-import os
-import shutil
-from pathlib import Path
-import subprocess
-
-from dotenv import load_dotenv
+logger = logging.getLogger("tubepilot.video_processor")
 
 # Load environment variables (.env) from backend, project root, and workspace root
 _CURR_DIR = Path(__file__).resolve().parent
@@ -21,6 +26,10 @@ load_dotenv(_CURR_DIR / ".env")
 load_dotenv(_CURR_DIR.parent / ".env")
 load_dotenv(_CURR_DIR.parents[1] / ".env")
 load_dotenv()
+
+# Limits & safety
+MAX_DIRECT_DOWNLOAD_BYTES = 600 * 1024 * 1024  # 600 MB max for direct stream download
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 
 def ffmpeg_path() -> str:
@@ -36,6 +45,8 @@ def get_js_runtimes() -> dict[str, dict[str, str]]:
         r"C:\Program Files\nodejs\node.exe",
         r"C:\Program Files (x86)\nodejs\node.exe",
         str(Path.home() / "AppData" / "Local" / "Programs" / "node" / "node.exe"),
+        "/usr/bin/node",
+        "/usr/local/bin/node",
     ]
     for p in node_paths:
         if p and Path(p).exists():
@@ -60,9 +71,156 @@ def has_audio(video: Path) -> bool:
     return " Audio:" in probe.stderr
 
 
-from typing import Callable
-import sys
+# ==============================================================================
+# Security & SSRF Protection
+# ==============================================================================
 
+def validate_media_url(url: str) -> str:
+    """
+    Validates URL format and blocks requests to private/internal network addresses (SSRF protection).
+    """
+    clean_url = (url or "").strip()
+    if not clean_url:
+        raise ValueError("URL cannot be empty.")
+
+    parsed = urllib.parse.urlsplit(clean_url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError(f"Invalid URL protocol: '{parsed.scheme}'. Only HTTP and HTTPS URLs are supported.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Invalid URL: missing host.")
+
+    # Block localhost / private IP hostnames explicitly
+    if hostname.lower() in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):
+        raise ValueError("Access to local/private network resources is prohibited.")
+
+    try:
+        addr_info = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Could not resolve video host '{hostname}': {e}")
+
+    for _, _, _, _, sockaddr in addr_info:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise ValueError(f"Access to private or cloud-internal network destination ({ip}) is prohibited.")
+
+    return clean_url
+
+
+def is_direct_media_url(url: str) -> bool:
+    """Checks whether URL points directly to a video binary file."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    path = parsed.path.lower()
+    known_exts = (".mp4", ".webm", ".mov", ".m4v", ".mkv", ".ts")
+    if any(path.endswith(ext) for ext in known_exts):
+        return True
+
+    # Check for direct supabase or s3 storage patterns
+    if "/storage/v1/object/" in path or "storage.googleapis.com" in parsed.netloc:
+        return True
+
+    return False
+
+
+# ==============================================================================
+# Direct Media Streaming Downloader
+# ==============================================================================
+
+def download_direct_media(
+    url: str,
+    output_dir: Path,
+    start_seconds: float = 0.0,
+    end_seconds: float | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+    filename_prefix: str = "source",
+    user_agent: str | None = None,
+) -> Path:
+    """
+    Downloads direct video files (MP4, WebM, MOV) over HTTP/HTTPS with streaming chunks,
+    progress callbacks, SSRF protection, size limits, and FFmpeg segment trimming.
+    """
+    clean_url = validate_media_url(url)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    raw_dest = output_dir / f"{filename_prefix}_raw.mp4"
+    final_dest = output_dir / f"{filename_prefix}.mp4"
+
+    headers = {
+        "User-Agent": user_agent or DEFAULT_USER_AGENT,
+        "Accept": "*/*",
+    }
+
+    if progress_callback:
+        progress_callback("[download] Connecting to direct media source...")
+
+    downloaded = 0
+    with httpx.stream("GET", clean_url, headers=headers, follow_redirects=True, timeout=90.0) as resp:
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Direct media source responded with HTTP {resp.status_code}: {resp.reason_phrase}")
+
+        content_len_str = resp.headers.get("content-length")
+        total_bytes = int(content_len_str) if content_len_str and content_len_str.isdigit() else 0
+
+        if total_bytes > MAX_DIRECT_DOWNLOAD_BYTES:
+            raise ValueError(
+                f"File size exceeds maximum allowed limit ({total_bytes // (1024*1024)}MB > {MAX_DIRECT_DOWNLOAD_BYTES // (1024*1024)}MB)."
+            )
+
+        with open(raw_dest, "wb") as f:
+            for chunk in resp.iter_bytes(chunk_size=512 * 1024):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if downloaded > MAX_DIRECT_DOWNLOAD_BYTES:
+                    raw_dest.unlink(missing_ok=True)
+                    raise ValueError(f"Download aborted: file exceeds {MAX_DIRECT_DOWNLOAD_BYTES // (1024*1024)}MB limit.")
+
+                if progress_callback and total_bytes > 0:
+                    pct = (downloaded / total_bytes) * 100
+                    mb_down = downloaded / (1024 * 1024)
+                    mb_total = total_bytes / (1024 * 1024)
+                    progress_callback(f"[download] {pct:5.1f}% of {mb_total:.1f}MB ({mb_down:.1f}MB downloaded)")
+
+    if not raw_dest.exists() or raw_dest.stat().st_size == 0:
+        raise RuntimeError("Direct media download produced an empty file.")
+
+    # Trim segment if requested
+    use_trim = (start_seconds > 0.0) or (end_seconds is not None and end_seconds > start_seconds)
+    if use_trim:
+        if progress_callback:
+            progress_callback(f"[download] Trimming segment ({start_seconds}s - {end_seconds or 'end'}s)...")
+
+        trim_args = ["-ss", str(start_seconds)]
+        if end_seconds and end_seconds > start_seconds:
+            trim_args.extend(["-to", str(end_seconds)])
+        trim_args.extend(["-i", str(raw_dest)])
+
+        # Try fast stream-copy first
+        try:
+            run_ffmpeg([*trim_args, "-c", "copy", str(final_dest)])
+        except Exception:
+            # Fallback to re-encode if stream copy fails on non-keyframe boundaries
+            run_ffmpeg([*trim_args, "-c:v", "libx264", "-c:a", "aac", str(final_dest)])
+
+        raw_dest.unlink(missing_ok=True)
+        return final_dest
+    else:
+        if raw_dest != final_dest:
+            if final_dest.exists():
+                final_dest.unlink()
+            raw_dest.rename(final_dest)
+        return final_dest
+
+
+# ==============================================================================
+# YouTube & Universal Media Downloader
+# ==============================================================================
 
 def download_youtube(
     url: str,
@@ -75,6 +233,28 @@ def download_youtube(
     progress_callback: Callable[[str], None] | None = None,
     filename_prefix: str = "source",
 ) -> Path:
+    """
+    Downloads video from YouTube or any supported platform URL.
+    - Routes direct media URLs to download_direct_media.
+    - Applies SSRF protection and security validation.
+    - For YouTube: uses prioritized player clients (android/ios/mweb) to bypass datacenter bot detection.
+    - Fallback to segment trimming with FFmpeg if range downloading is unavailable.
+    """
+    clean_url = validate_media_url(url)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Route direct video URLs immediately without yt-dlp overhead
+    if is_direct_media_url(clean_url):
+        return download_direct_media(
+            url=clean_url,
+            output_dir=output_dir,
+            start_seconds=start_seconds,
+            end_seconds=end_seconds,
+            progress_callback=progress_callback,
+            filename_prefix=filename_prefix,
+            user_agent=user_agent,
+        )
+
     # Ensure FFmpeg directory is in system PATH so yt-dlp range downloader finds it
     ffmpeg_exe = ffmpeg_path()
     ffmpeg_dir = str(Path(ffmpeg_exe).parent)
@@ -82,7 +262,7 @@ def download_youtube(
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
     base_options = {
-        "format": "bv*+ba/b",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "outtmpl": str(output_dir / f"{filename_prefix}.%(ext)s"),
         "ffmpeg_location": ffmpeg_exe,
@@ -91,7 +271,7 @@ def download_youtube(
         "no_warnings": True,
         "geo_bypass": True,
         "http_headers": {
-            "User-Agent": user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "User-Agent": user_agent or DEFAULT_USER_AGENT,
             "Accept-Language": "en-US,en;q=0.9",
         },
     }
@@ -111,31 +291,17 @@ def download_youtube(
     if js_runtimes:
         base_options["js_runtimes"] = js_runtimes
 
-    # Helper function to construct attempt options dictionary
-    def make_opts(cookie_source: tuple[str, str] | None, player_clients: list[str] | None, use_range: bool) -> dict:
-        opts = dict(base_options)
-        if use_range and (start_seconds or end_seconds):
-            s = start_seconds or 0.0
-            e = end_seconds if (end_seconds and end_seconds > s) else None
-            if e is not None:
-                opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(s, e)])
-        if player_clients:
-            opts["extractor_args"] = {"youtube": {"player_client": player_clients}}
-        if cookie_source:
-            kind, val = cookie_source
-            if kind == "file":
-                opts["cookiefile"] = val
-            elif kind == "browser":
-                opts["cookiesfrombrowser"] = (val,)
-        return opts
+    # Detect if target is YouTube
+    parsed_netloc = urllib.parse.urlsplit(clean_url).netloc.lower()
+    is_yt = any(domain in parsed_netloc for domain in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
 
+    # Discover cookie source
     primary_cookie_source: tuple[str, str] | None = None
     if cookie_file and cookie_file.exists():
         primary_cookie_source = ("file", str(cookie_file))
     elif browser and browser.lower() != "none":
         primary_cookie_source = ("browser", browser.lower())
     else:
-        # Check environment variable for cookie file path
         env_ck_file = os.getenv("YOUTUBE_COOKIES_FILE", "").strip()
         env_ck_text = os.getenv("YOUTUBE_COOKIES_TEXT", "").strip()
         if env_ck_file and Path(env_ck_file).exists():
@@ -152,25 +318,49 @@ def download_youtube(
             if default_ck.exists():
                 primary_cookie_source = ("file", str(default_ck))
 
+    # Helper function to construct attempt options dictionary
+    def make_opts(cookie_source: tuple[str, str] | None, player_client: str | None, use_range: bool) -> dict:
+        opts = dict(base_options)
+        if use_range and (start_seconds or end_seconds):
+            s = start_seconds or 0.0
+            e = end_seconds if (end_seconds and end_seconds > s) else None
+            if e is not None:
+                opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(s, e)])
+        if is_yt and player_client:
+            opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
+        if cookie_source:
+            kind, val = cookie_source
+            if kind == "file":
+                opts["cookiefile"] = val
+            elif kind == "browser":
+                opts["cookiesfrombrowser"] = (val,)
+        return opts
+
     attempts: list[dict] = []
 
-    # Tier 1: Primary cookie source + range download + standard clients
-    if primary_cookie_source:
-        attempts.append(make_opts(primary_cookie_source, ["android", "ios", "web"], use_range=True))
-        attempts.append(make_opts(primary_cookie_source, ["android", "ios", "web"], use_range=False))
+    if is_yt:
+        # Tier 1: With cookies if available (highest quality: web & android)
+        if primary_cookie_source:
+            attempts.append(make_opts(primary_cookie_source, "web", use_range=True))
+            attempts.append(make_opts(primary_cookie_source, "android", use_range=False))
 
-    # Tier 2: Clean request without cookies (bypasses browser locks & expired cookie files)
-    attempts.append(make_opts(None, ["android", "ios", "web"], use_range=True))
-    attempts.append(make_opts(None, ["android", "ios", "web"], use_range=False))
+        # Tier 2: Android client alone (consistently bypasses datacenter bot detection on cloud servers)
+        attempts.append(make_opts(None, "android", use_range=True))
+        attempts.append(make_opts(None, "android", use_range=False))
 
-    # Tier 3: Mobile & Creator clients without cookies
-    attempts.append(make_opts(None, ["android_creator", "android", "ios", "mweb"], use_range=False))
+        # Tier 3: Android Creator & iOS clients
+        attempts.append(make_opts(None, "android_creator", use_range=False))
+        attempts.append(make_opts(None, "ios", use_range=False))
 
-    # Tier 4: TV & Web clients without cookies
-    attempts.append(make_opts(None, ["tv", "web"], use_range=False))
+        # Tier 4: Mobile Web client
+        attempts.append(make_opts(None, "mweb", use_range=False))
 
-    # Tier 5: Default yt-dlp extractor settings
-    attempts.append(make_opts(None, None, use_range=False))
+        # Tier 5: Default extractor
+        attempts.append(make_opts(None, None, use_range=False))
+    else:
+        # Non-YouTube URL (Vimeo, Twitter, TikTok, generic platforms)
+        attempts.append(make_opts(primary_cookie_source, None, use_range=True))
+        attempts.append(make_opts(None, None, use_range=False))
 
     last_exception: Exception | None = None
     downloaded: Path | None = None
@@ -178,12 +368,11 @@ def download_youtube(
     for opts in attempts:
         try:
             with yt_dlp.YoutubeDL(opts) as downloader:
-                info = downloader.extract_info(url, download=True)
+                info = downloader.extract_info(clean_url, download=True)
                 prep_path = Path(downloader.prepare_filename(info))
                 if prep_path.exists():
                     downloaded = prep_path
                     break
-                # Check for output match in output_dir if filename was adjusted by yt-dlp
                 matches = list(output_dir.glob(f"{filename_prefix}.*"))
                 if matches:
                     downloaded = matches[0]
@@ -208,31 +397,89 @@ def download_youtube(
                 "--no-playlist",
                 "--quiet",
                 "--no-warnings",
-                url,
             ]
+            if is_yt:
+                cmd.extend(["--extractor-args", "youtube:player_client=android"])
+            cmd.append(clean_url)
             subprocess.run(cmd, check=True, capture_output=True)
             matches = list(output_dir.glob(f"{filename_prefix}.*"))
             if matches:
                 downloaded = matches[0]
         except Exception as error:
-            error_msg = str(last_exception or error)
-            raise RuntimeError(f"YouTube download failed after retrying all fallback engines: {error_msg}") from error
+            raw_err = str(last_exception or error)
+            if "Sign in to confirm you’re not a bot" in raw_err or "bot" in raw_err.lower():
+                raise RuntimeError(
+                    "YouTube bot protection blocked this request on the cloud server. "
+                    "To download YouTube videos in production, set YOUTUBE_COOKIES_TEXT in Render environment variables, "
+                    "or enter a direct video URL (MP4/WebM/MOV)."
+                ) from error
+            elif "Private video" in raw_err or "Video unavailable" in raw_err:
+                raise RuntimeError("Video is private, removed, or geo-restricted.") from error
+            else:
+                raise RuntimeError(f"Video download failed: {raw_err}") from error
 
     if not downloaded or not downloaded.exists():
         matches = list(output_dir.glob(f"{filename_prefix}.*"))
         if not matches:
-            raise FileNotFoundError("The YouTube download did not produce a video file.")
+            raise FileNotFoundError("The video download did not produce a valid media file.")
         downloaded = matches[0]
 
     mp4_file = downloaded.with_suffix(".mp4")
     if mp4_file.exists():
-        return mp4_file
-    return downloaded
+        final_video = mp4_file
+    else:
+        final_video = downloaded
+
+    # If range download was skipped and start/end seconds were specified, trim with FFmpeg
+    if (start_seconds > 0.0 or (end_seconds is not None and end_seconds > start_seconds)):
+        trimmed_file = output_dir / f"{filename_prefix}_trimmed.mp4"
+        trim_args = ["-ss", str(start_seconds)]
+        if end_seconds and end_seconds > start_seconds:
+            trim_args.extend(["-to", str(end_seconds)])
+        trim_args.extend(["-i", str(final_video)])
+        try:
+            run_ffmpeg([*trim_args, "-c", "copy", str(trimmed_file)])
+            if trimmed_file.exists() and trimmed_file.stat().st_size > 0:
+                final_video.unlink(missing_ok=True)
+                return trimmed_file
+        except Exception:
+            try:
+                run_ffmpeg([*trim_args, "-c:v", "libx264", "-c:a", "aac", str(trimmed_file)])
+                if trimmed_file.exists() and trimmed_file.stat().st_size > 0:
+                    final_video.unlink(missing_ok=True)
+                    return trimmed_file
+            except Exception:
+                pass
+
+    return final_video
 
 
 def save_upload(uploaded_file: object, destination: Path) -> Path:
-    destination.write_bytes(uploaded_file.getbuffer())
+    """
+    Saves an uploaded file to destination, supporting both FastAPI UploadFile
+    and Streamlit UploadedFile formats.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    if hasattr(uploaded_file, "file") and hasattr(uploaded_file.file, "read"):
+        # FastAPI UploadFile
+        uploaded_file.file.seek(0)
+        with open(destination, "wb") as buffer:
+            shutil.copyfileobj(uploaded_file.file, buffer)
+    elif hasattr(uploaded_file, "getbuffer"):
+        # Streamlit UploadedFile
+        destination.write_bytes(uploaded_file.getbuffer())
+    elif hasattr(uploaded_file, "read"):
+        data = uploaded_file.read()
+        if isinstance(data, bytes):
+            destination.write_bytes(data)
+        else:
+            destination.write_text(str(data), encoding="utf-8")
+    else:
+        raise TypeError(f"Unsupported upload file type: {type(uploaded_file)}")
+
     return destination
+
 
 
 def make_crop_filter(

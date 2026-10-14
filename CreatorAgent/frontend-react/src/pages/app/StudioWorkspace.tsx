@@ -31,14 +31,8 @@ import {
   SlidersHorizontal,
   ChevronDown,
 } from 'lucide-react';
-import { api } from '../../services/api';
+import { api, API_BASE } from '../../services/api';
 import type { RenderTaskStatus, YtProfile, YtVideo } from '../../services/api';
-
-const API_BASE = (
-  import.meta.env.VITE_API_BASE !== undefined
-    ? import.meta.env.VITE_API_BASE
-    : (window.location.port === '5173' ? 'http://localhost:8000' : '')
-).replace(/\/$/, '');
 
 function extractYoutubeId(url: string): string | null {
   if (!url) return null;
@@ -476,7 +470,7 @@ export const StudioWorkspace: React.FC = () => {
     setCompletedMediaUrl(null);
 
     if (!v1File && !v1Url.trim()) {
-      alert('Please enter a YouTube video URL or upload a local video file for Stream 1.');
+      alert('Please enter a video URL (YouTube or Direct MP4/WebM) or upload a local video file for Stream 1.');
       setIsRendering(false);
       return;
     }
@@ -718,23 +712,89 @@ export const StudioWorkspace: React.FC = () => {
             <span style={{ fontFamily: 'monospace' }}>Task ID: {taskStatus.id.slice(0, 8)}</span>
           </div>
 
+          {taskStatus.status === 'failed' && (
+            <div
+              style={{
+                marginTop: '16px',
+                padding: '14px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <AlertCircle size={18} style={{ color: '#EF4444', flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: '0 0 6px 0', fontSize: '0.88rem', fontWeight: 600, color: '#EF4444' }}>
+                    Render Failed: {taskStatus.error || 'The video download or rendering process failed.'}
+                  </p>
+                  {(taskStatus.error?.toLowerCase().includes('bot') || taskStatus.error?.toLowerCase().includes('sign in')) && (
+                    <p style={{ margin: '0 0 10px 0', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                      💡 <strong>Cloud Hosting Notice:</strong> Cloud datacenter IPs often encounter YouTube bot-verification safeguards. 
+                      You can bypass this by pasting a <strong>direct video URL (MP4/WebM)</strong> or configuring <code>YOUTUBE_COOKIES_TEXT</code> in server settings.
+                    </p>
+                  )}
+                  <button
+                    onClick={handleStartRender}
+                    className="btn btn-secondary btn-sm"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <RefreshCw size={14} /> Retry Render
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {completedMediaUrl && (
-            <div style={{ marginTop: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <a
-                href={completedMediaUrl}
-                download
-                className="btn btn-secondary btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Download size={14} /> Download Final MP4
-              </a>
-              <button
-                onClick={() => setShowPublishModal(true)}
-                className="btn btn-primary btn-sm"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Share2 size={14} /> Send to YouTube Studio
-              </button>
+            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {(() => {
+                  const downloadUrl = completedMediaUrl.startsWith('http')
+                    ? completedMediaUrl
+                    : `${API_BASE}${completedMediaUrl}`;
+                  return (
+                    <>
+                      <a
+                        href={downloadUrl}
+                        download={`creatorops_rendered_${taskStatus.id.slice(0, 8)}.mp4`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary btn-sm"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Download size={14} /> Download Final MP4
+                      </a>
+                      <a
+                        href={downloadUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary btn-sm"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Play size={14} /> Open Stream
+                      </a>
+                    </>
+                  );
+                })()}
+                <button
+                  onClick={() => setShowPublishModal(true)}
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Share2 size={14} /> Send to YouTube Studio
+                </button>
+              </div>
+
+              {/* Inline Master Video Preview Player */}
+              <div style={{ maxWidth: '440px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)', backgroundColor: '#000' }}>
+                <video
+                  src={completedMediaUrl.startsWith('http') ? completedMediaUrl : `${API_BASE}${completedMediaUrl}`}
+                  controls
+                  playsInline
+                  style={{ width: '100%', maxHeight: '320px', display: 'block' }}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -942,22 +1002,36 @@ export const StudioWorkspace: React.FC = () => {
               {/* Stream 1 Feed */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label className="input-label" style={{ margin: 0 }}>Stream 1 Source URL or Upload</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setV1Url('https://www.youtube.com/watch?v=jNQXAC9IVRw');
-                      setV1File(null);
-                    }}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
-                  >
-                    + Sample Video
-                  </button>
+                  <label className="input-label" style={{ margin: 0 }}>Stream 1 Video Source (YouTube or Direct MP4)</label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setV1Url('https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4');
+                        setV1File(null);
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-emerald)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+                      title="Direct lawful CC0 test MP4 video"
+                    >
+                      + Direct MP4
+                    </button>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setV1Url('https://www.youtube.com/watch?v=aqz-KE-bpKQ');
+                        setV1File(null);
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+                    >
+                      + YouTube
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="https://www.youtube.com/watch?v=..."
+                  placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
                   value={v1Url}
                   onChange={(e) => {
                     setV1Url(e.target.value);
@@ -981,22 +1055,36 @@ export const StudioWorkspace: React.FC = () => {
               {/* Stream 2 Feed */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label className="input-label" style={{ margin: 0 }}>Stream 2 Source URL or Upload (Optional)</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setV2Url('https://www.youtube.com/watch?v=aqz-KE-bpKQ');
-                      setV2File(null);
-                    }}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
-                  >
-                    + Sample Video 2
-                  </button>
+                  <label className="input-label" style={{ margin: 0 }}>Stream 2 Video Source (Optional)</label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setV2Url('https://www.w3schools.com/html/mov_bbb.mp4');
+                        setV2File(null);
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-emerald)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+                      title="Direct lawful CC0 sample MP4 video"
+                    >
+                      + Direct MP4 2
+                    </button>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setV2Url('https://www.youtube.com/watch?v=aqz-KE-bpKQ');
+                        setV2File(null);
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+                    >
+                      + YouTube 2
+                    </button>
+                  </div>
                 </div>
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="https://www.youtube.com/watch?v=..."
+                  placeholder="https://www.youtube.com/watch?v=... or https://example.com/video.mp4"
                   value={v2Url}
                   onChange={(e) => {
                     setV2Url(e.target.value);

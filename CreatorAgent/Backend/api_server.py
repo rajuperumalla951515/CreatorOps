@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import tempfile
 import time
 import uuid
+
+logger = logging.getLogger("tubepilot.api")
 
 # Relax strict oauthlib scope equality check when Google includes OpenID/profile scopes
 os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
@@ -79,6 +82,11 @@ from Backend.video_processor import (
     download_youtube,
     estimate_processing_time,
     save_upload,
+    validate_media_url,
+)
+from Backend.storage import (
+    upload_media_to_persistent_storage,
+    get_persistent_media_url,
 )
 from Backend.youtube_auth import (
     DEFAULT_CLIENT_ID,
@@ -707,7 +715,8 @@ def update_user_profile(
 
 
 class UploadYouTubePayload(BaseModel):
-    task_id: str
+    task_id: Optional[str] = None
+    media_url: Optional[str] = None
     title: str
     description: str = ""
     privacy: str = "public"
@@ -716,6 +725,7 @@ class UploadYouTubePayload(BaseModel):
     user_confirmed: bool = True
 
 
+@app.post("/api/youtube/publish")
 @app.post("/api/youtube/upload")
 @app.post("/api/v1/youtube/publish")
 def upload_master_to_yt(payload: UploadYouTubePayload, user_id: str = Depends(verify_creator_access)):
@@ -726,10 +736,22 @@ def upload_master_to_yt(payload: UploadYouTubePayload, user_id: str = Depends(ve
     if not creds:
         raise HTTPException(status_code=401, detail="YouTube account not authenticated.")
 
-    media_file = MEDIA_OUTPUT_DIR / f"{payload.task_id}.mp4"
+    target_id = payload.task_id
+    if not target_id and payload.media_url:
+        import re
+        m = re.search(r"([0-9a-fA-F\-]{36}|[a-zA-Z0-9_\-]+)\.mp4", payload.media_url)
+        if m:
+            target_id = m.group(1)
+        else:
+            target_id = Path(payload.media_url).stem
+
+    if not target_id:
+        raise HTTPException(status_code=400, detail="Missing task_id or media_url for YouTube publishing.")
+
+    media_file = MEDIA_OUTPUT_DIR / f"{target_id}.mp4"
     if not media_file.exists():
         # Look for match in output directory
-        candidates = list(MEDIA_OUTPUT_DIR.glob(f"*{payload.task_id}*.mp4"))
+        candidates = list(MEDIA_OUTPUT_DIR.glob(f"*{target_id}*.mp4"))
         if candidates:
             media_file = candidates[0]
         else:
@@ -957,9 +979,21 @@ def process_render_task(
                 crop_y2_pct=getattr(options, "crop_y2_pct", None),
             )
 
+            # Attempt persistent cloud storage upload (Supabase Storage)
+            persistent_url = None
+            try:
+                persistent_url = upload_media_to_persistent_storage(
+                    file_path=final_output_path,
+                    filename=f"{task_id}.mp4",
+                    user_id=task.get("user_id"),
+                )
+            except Exception as store_err:
+                logger.warning("Supabase storage upload error for task %s: %s", task_id, store_err)
+
             task["status"] = "complete"
             task["elapsed"] = round(time.perf_counter() - task["started_at"], 2)
-            task["media_url"] = f"/api/media/{task_id}.mp4"
+            task["media_url"] = persistent_url or f"/api/media/{task_id}.mp4"
+            task["persistent_storage"] = bool(persistent_url)
 
             update_job_progress(
                 task_id,
@@ -1051,6 +1085,19 @@ async def start_render(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid render parameters: {e}")
 
+    # Early security validation of video URLs (SSRF protection)
+    if options.v1_url and options.v1_url.strip():
+        try:
+            validate_media_url(options.v1_url)
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=f"Stream 1 URL invalid: {val_err}")
+
+    if options.v2_url and options.v2_url.strip():
+        try:
+            validate_media_url(options.v2_url)
+        except ValueError as val_err:
+            raise HTTPException(status_code=400, detail=f"Stream 2 URL invalid: {val_err}")
+
     task_id = str(uuid.uuid4())
     temp_dir = Path(tempfile.gettempdir()) / f"creatorops_{task_id}"
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -1079,6 +1126,7 @@ async def start_render(
 
     RENDER_TASKS[task_id] = {
         "id": task_id,
+        "user_id": user_id,
         "status": "queued",
         "step": 1,
         "total_steps": 3,
@@ -1124,9 +1172,21 @@ def get_task_status(task_id: str):
 @app.get("/api/media/{filename}")
 def get_media_file(filename: str):
     file_path = MEDIA_OUTPUT_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Media file not found")
-    return FileResponse(file_path, media_type="video/mp4")
+    if file_path.exists():
+        return FileResponse(file_path, media_type="video/mp4")
+
+    # Persistent cloud storage fallback if local ephemeral disk was wiped on restart
+    persistent_url = get_persistent_media_url(filename)
+    if persistent_url:
+        return RedirectResponse(url=persistent_url, status_code=307)
+
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            "Media file not found or expired. If the server container recently restarted, "
+            "set SUPABASE_SERVICE_ROLE_KEY to enable persistent video storage."
+        ),
+    )
 
 
 # ==============================================================================
