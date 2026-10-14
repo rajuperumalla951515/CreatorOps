@@ -36,6 +36,9 @@ import { Settings } from './pages/app/Settings';
 import { HelpSupport } from './pages/app/HelpSupport';
 
 import { OAuthHandler } from './components/OAuthHandler';
+import { ProtectedRoute, PublicOnlyRoute } from './components/RouteGuards';
+import { Login } from './pages/auth/Login';
+import { Signup } from './pages/auth/Signup';
 
 // Layout wrapper for Public Pages
 const PublicLayout: React.FC = () => {
@@ -101,13 +104,42 @@ export default function App() {
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
           <Route path="/terms" element={<TermsOfUse />} />
+          <Route path="/terms-of-use" element={<Navigate to="/terms" replace />} />
           <Route path="/copyright" element={<CopyrightPolicy />} />
+          <Route path="/copyright-policy" element={<Navigate to="/copyright" replace />} />
           <Route path="/cookies" element={<CookiePolicy />} />
+          <Route path="/cookie-policy" element={<Navigate to="/cookies" replace />} />
         </Route>
 
-        {/* Authenticated Studio Dashboard Routes */}
-        <Route path="/app" element={<DashboardLayout />}>
+        {/* Authentication Routes (Public Only) */}
+        <Route
+          path="/login"
+          element={
+            <PublicOnlyRoute>
+              <Login />
+            </PublicOnlyRoute>
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            <PublicOnlyRoute>
+              <Signup />
+            </PublicOnlyRoute>
+          }
+        />
+
+        {/* Authenticated Studio Dashboard Routes (Protected) */}
+        <Route
+          path="/app"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<DashboardOverview />} />
           <Route path="new" element={<NewProject />} />
           <Route path="projects" element={<MyProjects />} />

@@ -93,7 +93,7 @@ export const Features: React.FC = () => {
             <span className="text-gradient">YouTube Video Production.</span>
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', maxWidth: '680px', margin: '0 auto', lineHeight: '1.6' }}>
-            Explore the comprehensive toolset built into TubePilot AI — designed to replace fragmented editing utilities with a unified autonomous studio.
+            Explore the comprehensive toolset built into CreatorOps — designed to replace fragmented editing utilities with a unified autonomous studio.
           </p>
         </div>
 
@@ -143,7 +143,7 @@ export const Features: React.FC = () => {
 
         {/* Bottom CTA */}
         <div className="studio-card-elevated" style={{ padding: '48px 32px', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '2rem', marginBottom: '12px' }}>Experience TubePilot AI in Action</h2>
+          <h2 style={{ fontSize: '2rem', marginBottom: '12px' }}>Experience CreatorOps in Action</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '24px' }}>
             Open the studio canvas and composite your first dual-stream video in seconds.
           </p>

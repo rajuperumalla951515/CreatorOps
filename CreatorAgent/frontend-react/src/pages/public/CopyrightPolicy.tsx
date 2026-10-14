@@ -59,7 +59,7 @@ export const CopyrightPolicy: React.FC = () => {
           <section>
             <h2 style={{ fontSize: '1.35rem', color: '#FFFFFF', marginBottom: '12px' }}>1. Digital Millennium Copyright Act (DMCA) Notice</h2>
             <p>
-              TubePilot AI respects the intellectual property rights of creators and copyright owners. In compliance with the Digital Millennium Copyright Act of 1998 (17 U.S.C. § 512) and international copyright legislation, we maintain an active designated agent to receive notifications of claimed infringement.
+              CreatorOps respects the intellectual property rights of creators and copyright owners. In compliance with the Digital Millennium Copyright Act of 1998 (17 U.S.C. § 512) and international copyright legislation, we maintain an active designated agent to receive notifications of claimed infringement.
             </p>
           </section>
 
@@ -69,14 +69,14 @@ export const CopyrightPolicy: React.FC = () => {
               <strong>Important Clarification:</strong> Applying automated AI transformations—such as automated reframing, layout collage, smart cut detection, background music mixing, or automated captioning—does not automatically convert copyrighted media into "fair use" or lawful derivative works under copyright law.
             </p>
             <p style={{ marginTop: '12px' }}>
-              Creators are strictly prohibited from using TubePilot AI to process, modify, or publish broadcast television, copyrighted films, commercial music tracks, or unauthorized YouTube streams without explicit written consent from the rights holder.
+              Creators are strictly prohibited from using CreatorOps to process, modify, or publish broadcast television, copyrighted films, commercial music tracks, or unauthorized YouTube streams without explicit written consent from the rights holder.
             </p>
           </section>
 
           <section>
             <h2 style={{ fontSize: '1.35rem', color: '#FFFFFF', marginBottom: '12px' }}>3. How to Submit a Copyright Infringement Notice</h2>
             <p>
-              If you believe in good faith that any content hosted or processed through TubePilot AI infringes upon your copyright, please transmit a formal written notice containing:
+              If you believe in good faith that any content hosted or processed through CreatorOps infringes upon your copyright, please transmit a formal written notice containing:
             </p>
             <ol style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
               <li>Identification of the copyrighted work claimed to have been infringed (or a representative list if multiple works).</li>
@@ -93,9 +93,9 @@ export const CopyrightPolicy: React.FC = () => {
             <div className="studio-card" style={{ padding: '20px' }}>
               <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
                 <strong>Attention:</strong> Copyright & DMCA Compliance Officer<br />
-                <strong>Entity:</strong> TubePilot AI Technologies<br />
-                <strong>Email:</strong> dmca@tubepilot.ai<br />
-                <strong>Physical Address:</strong> 500 Creator Boulevard, Suite 400, San Francisco, CA 94107
+                <strong>Entity:</strong> CreatorOps Legal Operations<br />
+                <strong>Email:</strong> dmca@creatorops.app<br />
+                <strong>Website:</strong> https://creator-ops-beta.vercel.app
               </p>
             </div>
           </section>
@@ -110,7 +110,7 @@ export const CopyrightPolicy: React.FC = () => {
           <section>
             <h2 style={{ fontSize: '1.35rem', color: '#FFFFFF', marginBottom: '12px' }}>6. Repeat Infringer Policy</h2>
             <p>
-              TubePilot AI maintains an uncompromising repeat infringer policy. We will terminate access, invalidate Creator Keys, and permanently delete accounts of creators who are repeatedly identified as infringing the intellectual property rights of third parties.
+              CreatorOps maintains an uncompromising repeat infringer policy. We will terminate access, invalidate Creator Keys, and permanently delete accounts of creators who are repeatedly identified as infringing the intellectual property rights of third parties.
             </p>
           </section>
         </div>

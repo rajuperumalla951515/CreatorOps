@@ -145,7 +145,7 @@ export const DashboardLayout: React.FC = () => {
     setUserProfile(null);
     setYtProfile(null);
     setIsUnlocked(false);
-    setAuthModalOpen(true);
+    navigate('/', { replace: true });
   };
 
   const navigationItems = [
@@ -208,7 +208,7 @@ export const DashboardLayout: React.FC = () => {
                 width: '32px',
                 height: '32px',
                 borderRadius: '8px',
-                background: 'linear-gradient(135deg, var(--accent-violet) 0%, var(--accent-blue) 100%)',
+                background: 'var(--gradient-accent)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -218,8 +218,8 @@ export const DashboardLayout: React.FC = () => {
               <Film size={16} color="#FFFFFF" />
             </div>
             {!collapsed && (
-              <span style={{ fontSize: '1.05rem', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
-                TubePilot <span style={{ color: 'var(--accent-violet)' }}>AI</span>
+              <span style={{ fontSize: '1.05rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em', whiteSpace: 'nowrap', fontFamily: "'Outfit', sans-serif" }}>
+                Creator<span style={{ color: 'var(--accent-violet)' }}>Ops</span>
               </span>
             )}
           </Link>
@@ -615,7 +615,9 @@ export const DashboardLayout: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Film size={20} style={{ color: 'var(--accent-violet)' }} />
-                <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#FFFFFF' }}>TubePilot AI</span>
+                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF', fontFamily: "'Outfit', sans-serif" }}>
+                  Creator<span style={{ color: 'var(--accent-violet)' }}>Ops</span>
+                </span>
               </div>
               <button
                 onClick={() => setMobileMenuOpen(false)}

@@ -12,21 +12,21 @@ export const About: React.FC = () => {
             Mission & Architecture
           </div>
           <h1 style={{ fontSize: 'clamp(2.4rem, 4.5vw, 3.6rem)', marginBottom: '16px' }}>
-            About TubePilot AI
+            About CreatorOps
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', maxWidth: '640px', margin: '0 auto', lineHeight: '1.6' }}>
-            Building the next generation of autonomous, deterministic video production tools for high-velocity digital creators.
+            Building the next generation of autonomous, deterministic video production and operations tools for high-velocity digital creators.
           </p>
         </div>
 
         {/* Mission Statement */}
         <div className="studio-card" style={{ padding: '40px', marginBottom: '48px' }}>
-          <h2 style={{ fontSize: '1.6rem', marginBottom: '16px' }}>Our Philosophy: Deterministic AI Systems</h2>
+          <h2 style={{ fontSize: '1.6rem', marginBottom: '16px' }}>Our Philosophy: Deterministic Systems</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.7', marginBottom: '20px' }}>
             Most video automation tools treat artificial intelligence as a black box—promising magic results but delivering inconsistent edits, desynchronized audio, and hallucinated metadata.
           </p>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.7', marginBottom: '20px' }}>
-            TubePilot AI was engineered with an opposite philosophy: <strong>Deterministic Agent Orchestration</strong>. We combine specialized autonomous agents with industry-standard FFmpeg media compositing. Every trim, spatial layout, caption track, and chapter timestamp is grounded in verifiable mathematical coordinates and media probes.
+            CreatorOps was engineered with an opposite philosophy: <strong>Deterministic Agent Orchestration</strong>. We combine specialized autonomous agents with industry-standard FFmpeg media compositing. Every trim, spatial layout, caption track, and chapter timestamp is grounded in verifiable mathematical coordinates and media probes.
           </p>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.7' }}>
             The result is an autonomous studio that respects creator intentionality, operates within strict security boundaries, and delivers reliable, publish-ready videos every time.

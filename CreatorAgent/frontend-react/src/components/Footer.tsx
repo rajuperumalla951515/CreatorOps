@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Tv, ShieldCheck, Heart, ExternalLink } from 'lucide-react';
+import { Tv, ExternalLink } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -51,41 +51,42 @@ export const Footer: React.FC = () => {
               style={{
                 fontFamily: "'Outfit', sans-serif",
                 fontWeight: 800,
-                fontSize: '1.2rem',
+                fontSize: '1.25rem',
                 color: '#FFFFFF',
+                letterSpacing: '-0.02em',
               }}
             >
-              TubePilot <span style={{ color: 'var(--accent-violet)' }}>AI</span>
+              Creator<span style={{ color: 'var(--accent-violet)' }}>Ops</span>
             </span>
           </Link>
           <p style={{ fontSize: '0.85rem', lineHeight: '1.6', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            Autonomous video production studio helping creators turn raw footage and authorized media into polished, publish-ready videos with multi-agent orchestration.
+            Autonomous operations platform and video production studio for creators. Reframe footage, composite multi-stream layouts, generate subtitle cues, and manage YouTube distribution.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }}></div>
-            <span>FFmpeg Media Engine Active</span>
+            <span>Media Engine Active • Python API</span>
           </div>
         </div>
 
         {/* Product Navigation */}
         <div>
-          <h4 style={{ fontSize: '0.9rem', color: '#FFFFFF', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <h4 style={{ fontSize: '0.85rem', color: '#FFFFFF', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
             Product
           </h4>
-          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem' }}>
+          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', padding: 0, margin: 0 }}>
             <li>
               <Link to="/features" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
                 Features & Pipeline
               </Link>
             </li>
             <li>
-              <Link to="/ai-agents" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                8 Specialized AI Agents
+              <Link to="/how-it-works" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                How It Works
               </Link>
             </li>
             <li>
-              <Link to="/how-it-works" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                How It Works
+              <Link to="/ai-agents" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                8 Autonomous Agents
               </Link>
             </li>
             <li>
@@ -101,25 +102,64 @@ export const Footer: React.FC = () => {
           </ul>
         </div>
 
-        {/* Resources & Articles */}
+        {/* Resources & Support */}
         <div>
-          <h4 style={{ fontSize: '0.9rem', color: '#FFFFFF', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Resources
+          <h4 style={{ fontSize: '0.85rem', color: '#FFFFFF', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+            Resources & Access
           </h4>
-          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem' }}>
+          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', padding: 0, margin: 0 }}>
+            <li>
+              <Link to="/login" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                Sign In
+              </Link>
+            </li>
+            <li>
+              <Link to="/signup" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                Create Account
+              </Link>
+            </li>
             <li>
               <Link to="/blog" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                Creator Blog & Tutorials
+                Engineering & Blog
               </Link>
             </li>
             <li>
               <Link to="/about" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                About TubePilot AI
+                About CreatorOps
               </Link>
             </li>
             <li>
               <Link to="/contact" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
                 Contact & Support
+              </Link>
+            </li>
+          </ul>
+        </div>
+
+        {/* Legal & Compliance */}
+        <div>
+          <h4 style={{ fontSize: '0.85rem', color: '#FFFFFF', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+            Trust & Legal
+          </h4>
+          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem', padding: 0, margin: 0 }}>
+            <li>
+              <Link to="/privacy" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                Privacy Policy
+              </Link>
+            </li>
+            <li>
+              <Link to="/terms" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                Terms of Service
+              </Link>
+            </li>
+            <li>
+              <Link to="/copyright" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                Copyright & Content Policy
+              </Link>
+            </li>
+            <li>
+              <Link to="/cookies" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                Cookie Policy
               </Link>
             </li>
             <li>
@@ -131,35 +171,6 @@ export const Footer: React.FC = () => {
               >
                 YouTube API Docs <ExternalLink size={12} />
               </a>
-            </li>
-          </ul>
-        </div>
-
-        {/* Legal & Compliance (AdSense Ready) */}
-        <div>
-          <h4 style={{ fontSize: '0.9rem', color: '#FFFFFF', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Trust & Legal
-          </h4>
-          <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.88rem' }}>
-            <li>
-              <Link to="/privacy-policy" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                Privacy Policy
-              </Link>
-            </li>
-            <li>
-              <Link to="/terms-of-use" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                Terms of Use
-              </Link>
-            </li>
-            <li>
-              <Link to="/copyright-policy" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                Copyright & Content Policy
-              </Link>
-            </li>
-            <li>
-              <Link to="/cookie-policy" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>
-                Cookie Policy
-              </Link>
             </li>
           </ul>
         </div>
@@ -182,13 +193,17 @@ export const Footer: React.FC = () => {
         }}
       >
         <div>
-          © {new Date().getFullYear()} TubePilot AI. All rights reserved. Built for professional content creators.
+          © {new Date().getFullYear()} CreatorOps. All rights reserved.
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <span>Google OAuth 2.0 & YouTube Data API v3 Certified Workflow</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          <span>Google OAuth 2.0 & YouTube Data API v3 Workflow</span>
           <span>•</span>
-          <Link to="/privacy-policy" style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>
+          <Link to="/privacy" style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>
             Data Privacy
+          </Link>
+          <span>•</span>
+          <Link to="/terms" style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>
+            Terms of Service
           </Link>
         </div>
       </div>

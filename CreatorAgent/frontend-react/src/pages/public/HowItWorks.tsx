@@ -7,7 +7,7 @@ export const HowItWorks: React.FC = () => {
     {
       num: '01',
       title: 'Upload Original Footage or Authorized Media',
-      desc: 'Drag and drop your raw MP4, WebM, or MOV video clips directly into TubePilot AI. Or import authorized streams with automated format probing.',
+      desc: 'Drag and drop your raw MP4, WebM, or MOV video clips directly into CreatorOps. Or import authorized streams with automated format probing.',
       details: ['Validates resolution, duration, and audio streams automatically', 'Local storage sandbox prevents cross-project leakage'],
     },
     {
@@ -45,7 +45,7 @@ export const HowItWorks: React.FC = () => {
             Workflow Walkthrough
           </div>
           <h1 style={{ fontSize: 'clamp(2.4rem, 4.5vw, 3.6rem)', marginBottom: '16px' }}>
-            How TubePilot AI Produces <br />
+            How CreatorOps Produces <br />
             <span className="text-gradient">Publish-Ready Content.</span>
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', maxWidth: '640px', margin: '0 auto', lineHeight: '1.6' }}>
@@ -109,7 +109,7 @@ export const HowItWorks: React.FC = () => {
         <div className="studio-card-elevated" style={{ padding: '48px 32px', textAlign: 'center' }}>
           <h2 style={{ fontSize: '2rem', marginBottom: '12px' }}>Start Your First Production</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '24px' }}>
-            No complex video editing software needed. Start in the browser with TubePilot AI.
+            No complex video editing software needed. Start in the browser with CreatorOps.
           </p>
           <Link to="/app/new" className="btn-primary" style={{ padding: '12px 28px' }}>
             Launch Studio Workspace <ArrowRight size={16} />

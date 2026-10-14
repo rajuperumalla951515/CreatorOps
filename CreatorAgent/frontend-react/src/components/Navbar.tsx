@@ -1,32 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Video,
-  Sparkles,
-  ShieldCheck,
-  Lock,
-  Unlock,
+  Tv,
   Menu,
   X,
   ArrowRight,
-  Tv,
   User,
   LogOut,
+  LayoutDashboard,
 } from 'lucide-react';
-import { api } from '../services/api';
 import { getCurrentUser, signOut, ensureProfile, type UserProfile } from '../utils/supabase';
-import { AuthModal } from './AuthModal';
+import { api } from '../services/api';
 import type { YtProfile } from '../types';
 
-export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthModal }) => {
+export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [isProtected, setIsProtected] = useState(false);
-  const [isUnlocked, setIsUnlocked] = useState(true);
   const [ytProfile, setYtProfile] = useState<YtProfile | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const loadUserData = () => {
     getCurrentUser()
@@ -43,13 +36,6 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
         setCurrentUser(null);
         setUserProfile(null);
       });
-
-    api.getAuthStatus()
-      .then((res) => {
-        setIsProtected(res.protected);
-        setIsUnlocked(res.authenticated);
-      })
-      .catch(() => {});
 
     api.getYoutubeProfile()
       .then((profile) => {
@@ -80,13 +66,14 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
     api.clearCreatorKey();
     setCurrentUser(null);
     setUserProfile(null);
-    setIsUnlocked(false);
+    setYtProfile(null);
+    navigate('/');
   };
 
   const navLinks = [
     { label: 'Features', path: '/features' },
-    { label: 'AI Agents', path: '/ai-agents' },
     { label: 'How It Works', path: '/how-it-works' },
+    { label: 'AI Pipeline', path: '/ai-agents' },
     { label: 'Pricing', path: '/pricing' },
     { label: 'Blog', path: '/blog' },
   ];
@@ -100,7 +87,7 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
         top: 0,
         zIndex: 50,
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        backdropFilter: 'blur(12px)',
+        backdropFilter: 'blur(14px)',
         borderBottom: '1px solid var(--border-subtle)',
       }}
     >
@@ -109,7 +96,7 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
           maxWidth: '1280px',
           margin: '0 auto',
           padding: '0 24px',
-          height: '70px',
+          height: '68px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -147,20 +134,21 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
                 fontSize: '1.25rem',
                 color: '#FFFFFF',
                 lineHeight: 1.1,
+                letterSpacing: '-0.02em',
               }}
             >
-              TubePilot <span style={{ color: 'var(--accent-violet)', fontWeight: 600 }}>AI</span>
+              Creator<span style={{ color: 'var(--accent-violet)', fontWeight: 600 }}>Ops</span>
             </span>
             <span
               style={{
                 fontSize: '0.65rem',
                 color: 'var(--text-muted)',
-                letterSpacing: '0.12em',
+                letterSpacing: '0.1em',
                 fontWeight: 600,
                 textTransform: 'uppercase',
               }}
             >
-              Autonomous Studio
+              Creator Studio OS
             </span>
           </div>
         </Link>
@@ -180,10 +168,10 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
               to={link.path}
               style={{
                 textDecoration: 'none',
-                fontSize: '0.9rem',
+                fontSize: '0.88rem',
                 fontWeight: 500,
                 color: isActive(link.path) ? '#FFFFFF' : 'var(--text-secondary)',
-                transition: 'color 0.2s ease',
+                transition: 'color 0.15s ease',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.color = '#FFFFFF')}
               onMouseLeave={(e) =>
@@ -197,10 +185,41 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
 
         {/* Right Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* User Profile or Sign In CTA */}
           {currentUser ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {/* YouTube Channel Indicator */}
+              {ytProfile && (
+                <Link
+                  to="/app/youtube"
+                  className="hide-mobile"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    textDecoration: 'none',
+                    background: 'var(--surface-secondary)',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                  title={`Connected channel: ${ytProfile.title}`}
+                >
+                  {ytProfile.avatar_url && (
+                    <img
+                      src={ytProfile.avatar_url}
+                      alt={ytProfile.title}
+                      style={{ width: '18px', height: '18px', borderRadius: '50%' }}
+                    />
+                  )}
+                  <span style={{ fontSize: '0.78rem', color: '#FFFFFF', fontWeight: 600, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {ytProfile.title}
+                  </span>
+                </Link>
+              )}
+
+              {/* User Profile Pill */}
+              <Link
+                to="/app/settings"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -211,6 +230,7 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
                   borderRadius: '20px',
                   fontSize: '0.8rem',
                   color: '#FFFFFF',
+                  textDecoration: 'none',
                 }}
                 title={userProfile?.display_name || currentUser.email}
               >
@@ -239,10 +259,28 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
                     (userProfile?.display_name || currentUser.email || 'U')[0].toUpperCase()
                   )}
                 </div>
-                <span className="hide-mobile" style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {userProfile?.display_name || currentUser.email}
+                <span className="hide-mobile" style={{ maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {userProfile?.display_name || currentUser.email?.split('@')[0]}
                 </span>
-              </div>
+              </Link>
+
+              {/* Launch Studio CTA */}
+              <Link
+                to="/app"
+                className="btn-primary"
+                style={{
+                  padding: '7px 14px',
+                  fontSize: '0.84rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <LayoutDashboard size={14} />
+                <span>Open Studio</span>
+              </Link>
+
+              {/* Logout Button */}
               <button
                 onClick={handleSignOut}
                 style={{
@@ -253,70 +291,55 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
                   padding: '6px',
                   display: 'flex',
                   alignItems: 'center',
+                  transition: 'color 0.15s ease',
                 }}
                 title="Sign Out"
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#EF4444')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
               >
                 <LogOut size={16} />
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => (onOpenAuthModal ? onOpenAuthModal() : setAuthModalOpen(true))}
-              style={{
-                backgroundColor: 'transparent',
-                border: '1px solid var(--border-subtle)',
-                color: '#FFFFFF',
-                padding: '7px 14px',
-                borderRadius: '8px',
-                fontSize: '0.84rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <User size={14} />
-              <span>Sign In</span>
-            </button>
-          )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Link
+                to="/login"
+                style={{
+                  backgroundColor: 'transparent',
+                  border: '1px solid var(--border-subtle)',
+                  color: '#FFFFFF',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'background-color 0.15s ease',
+                }}
+              >
+                <User size={14} />
+                <span>Sign In</span>
+              </Link>
 
-          {/* YouTube Channel Indicator if authenticated */}
-          {ytProfile && (
-            <Link
-              to="/app/youtube"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                textDecoration: 'none',
-                background: 'var(--surface-secondary)',
-                padding: '4px 10px',
-                borderRadius: '20px',
-                border: '1px solid var(--border-subtle)',
-              }}
-            >
-              {ytProfile.avatar_url && (
-                <img
-                  src={ytProfile.avatar_url}
-                  alt={ytProfile.title}
-                  style={{ width: '20px', height: '20px', borderRadius: '50%' }}
-                />
-              )}
-              <span style={{ fontSize: '0.78rem', color: '#FFFFFF', fontWeight: 600 }}>
-                {ytProfile.title}
-              </span>
-            </Link>
+              <Link
+                to="/signup"
+                className="btn-primary"
+                style={{
+                  padding: '7px 14px',
+                  fontSize: '0.84rem',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>Get Started</span>
+                <ArrowRight size={14} />
+              </Link>
+            </div>
           )}
-
-          {/* Studio App Launch CTA */}
-          <Link
-            to="/app"
-            className="btn-primary"
-            style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-          >
-            Launch Studio <ArrowRight size={14} />
-          </Link>
 
           {/* Mobile Menu Button */}
           <button
@@ -330,8 +353,9 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
               padding: '6px',
             }}
             className="mobile-menu-btn"
+            aria-label="Toggle Navigation Menu"
           >
-            {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
       </div>
@@ -355,7 +379,7 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
               onClick={() => setMobileMenuOpen(false)}
               style={{
                 textDecoration: 'none',
-                fontSize: '1rem',
+                fontSize: '0.95rem',
                 color: isActive(link.path) ? '#FFFFFF' : 'var(--text-secondary)',
                 fontWeight: 500,
                 padding: '6px 0',
@@ -364,30 +388,77 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
               {link.label}
             </Link>
           ))}
-          <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
-            <Link
-              to="/app"
-              onClick={() => setMobileMenuOpen(false)}
-              className="btn-primary"
-              style={{ width: '100%', padding: '12px' }}
-            >
-              Open Studio Workspace
-            </Link>
+          <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {currentUser ? (
+              <>
+                <Link
+                  to="/app"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="btn-primary"
+                  style={{ width: '100%', padding: '10px', textAlign: 'center' }}
+                >
+                  Open Studio Dashboard
+                </Link>
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleSignOut();
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--border-subtle)',
+                    color: '#EF4444',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--border-subtle)',
+                    color: '#FFFFFF',
+                    borderRadius: '8px',
+                    textAlign: 'center',
+                    textDecoration: 'none',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  Sign In
+                </Link>
+                <Link
+                  to="/signup"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="btn-primary"
+                  style={{ width: '100%', padding: '10px', textAlign: 'center' }}
+                >
+                  Get Started Free
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}
-
-      {/* Embedded Auth Modal */}
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        onSuccess={loadUserData}
-      />
 
       <style>{`
         @media (min-width: 860px) {
           .desktop-nav { display: flex !important; }
           .mobile-menu-btn { display: none !important; }
+        }
+        @media (max-width: 640px) {
+          .hide-mobile { display: none !important; }
         }
       `}</style>
     </nav>

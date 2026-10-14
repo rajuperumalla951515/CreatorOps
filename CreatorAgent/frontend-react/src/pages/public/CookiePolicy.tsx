@@ -42,7 +42,7 @@ export const CookiePolicy: React.FC = () => {
             <Shield size={18} style={{ color: 'var(--accent-emerald)' }} /> Minimalist Storage Footprint
           </h3>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0 }}>
-            TubePilot AI does not use invasive third-party cross-site advertising cookies or tracking pixels. We store only essential session tokens and studio interface preferences necessary for authenticating your workspace and preserving your video editor layouts.
+            CreatorOps does not use invasive third-party cross-site advertising cookies or tracking pixels. We store only essential session tokens and studio interface preferences necessary for authenticating your workspace and preserving your video editor layouts.
           </p>
         </div>
 
@@ -58,7 +58,7 @@ export const CookiePolicy: React.FC = () => {
           <section>
             <h2 style={{ fontSize: '1.35rem', color: '#FFFFFF', marginBottom: '12px' }}>2. Data We Store Locally</h2>
             <p>
-              Below is the comprehensive list of client-side storage keys utilized by the TubePilot AI studio:
+              Below is the comprehensive list of client-side storage keys utilized by the CreatorOps studio:
             </p>
 
             <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
