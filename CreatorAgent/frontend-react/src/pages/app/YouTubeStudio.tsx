@@ -17,6 +17,7 @@ import { YouTubeIcon } from '../../components/YouTubeIcon';
 import { ProfileSkeleton, TableSkeleton } from '../../components/skeletons';
 import { api } from '../../services/api';
 import type { YtProfile, PublishingJob } from '../../services/api';
+import { getCurrentUser, getConnectedYouTubeChannel, supabase, logAuditEvent } from '../../utils/supabase';
 
 const API_BASE = (
   import.meta.env.VITE_API_BASE !== undefined
@@ -49,8 +50,33 @@ export const YouTubeStudio: React.FC = () => {
         api.getYoutubeProfile().catch(() => null),
         api.getPublishingHistory().catch(() => []),
       ]);
-      setProfile(prof);
       setPublishingJobs(history);
+
+      if (prof) {
+        setProfile(prof);
+        setLoading(false);
+        return;
+      }
+
+      // Check Supabase fallback
+      const user = await getCurrentUser();
+      if (user) {
+        const supaChannel = await getConnectedYouTubeChannel(user.id);
+        if (supaChannel) {
+          setProfile({
+            channel_id: supaChannel.channel_id,
+            title: supaChannel.channel_title,
+            handle: supaChannel.channel_handle,
+            avatar_url: supaChannel.avatar_url,
+            subscriber_count: supaChannel.subscriber_count,
+            video_count: supaChannel.video_count,
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      setProfile(null);
     } finally {
       setLoading(false);
     }
@@ -85,7 +111,18 @@ export const YouTubeStudio: React.FC = () => {
     if (!confirm('Disconnect your YouTube channel from TubePilot AI? You will need to re-authorize via Google OAuth to upload videos.')) return;
     setIsDisconnecting(true);
     try {
-      await api.disconnectYoutube();
+      await api.disconnectYoutube().catch(() => {});
+      const user = await getCurrentUser();
+      if (user) {
+        await supabase.from('youtube_channels').delete().eq('user_id', user.id);
+        await logAuditEvent({
+          userId: user.id,
+          eventType: 'youtube_disconnected',
+          entityType: 'youtube_channels',
+          description: 'Disconnected YouTube channel from Studio',
+          status: 'success',
+        });
+      }
       setProfile(null);
       window.dispatchEvent(new CustomEvent('tubepilot:channel-updated', { detail: null }));
     } catch {
@@ -116,13 +153,14 @@ export const YouTubeStudio: React.FC = () => {
             <LogOut size={16} /> Disconnect Channel
           </button>
         ) : (
-          <a
-            href={`${API_BASE}/api/youtube/login`}
+          <button
+            onClick={handleConnect}
+            disabled={isConnecting}
             className="btn btn-primary"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
           >
-            <YouTubeIcon size={16} /> Authorize YouTube via Google OAuth
-          </a>
+            {isConnecting ? <span className="spin">⟳</span> : <YouTubeIcon size={16} />} Authorize YouTube via Google OAuth
+          </button>
         )}
       </div>
 

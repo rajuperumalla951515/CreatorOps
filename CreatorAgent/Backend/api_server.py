@@ -56,7 +56,14 @@ from Backend.db import (
     update_job_progress,
     update_project,
 )
-from Backend.supabase_db import extract_user_id_from_header, verify_supabase_token
+from Backend.supabase_db import (
+    extract_user_id_from_header,
+    verify_supabase_token,
+    log_audit_event_supabase,
+    get_audit_events_supabase,
+    get_profile_supabase,
+    upsert_profile_supabase,
+)
 from Backend.agents import (
     EditingAgent,
     MediaAnalysisAgent,
@@ -291,13 +298,24 @@ class ProjectUpdatePayload(BaseModel):
 
 
 @app.get("/api/v1/projects")
-def api_list_projects(limit: int = 50, user_id: str = Depends(verify_creator_access)):
-    projects = [format_project_response(p) for p in list_projects(limit=limit, user_id=user_id)]
+def api_list_projects(
+    limit: int = 50,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
+    projects = [
+        format_project_response(p)
+        for p in list_projects(limit=limit, user_id=user_id, auth_header=authorization)
+    ]
     return {"projects": projects}
 
 
 @app.post("/api/v1/projects")
-def api_create_project(payload: ProjectCreatePayload, user_id: str = Depends(verify_creator_access)):
+def api_create_project(
+    payload: ProjectCreatePayload,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
     p_id = f"proj_{uuid.uuid4().hex[:10]}"
     project = create_project(
         project_id=p_id,
@@ -309,12 +327,26 @@ def api_create_project(payload: ProjectCreatePayload, user_id: str = Depends(ver
         instructions=payload.instructions,
         metadata=payload.metadata,
         user_id=user_id,
+        auth_header=authorization,
+    )
+    log_audit_event_supabase(
+        user_id=user_id,
+        event_type="project_created",
+        entity_type="projects",
+        entity_id=p_id,
+        description=f"Created video project: {payload.resolved_name()}",
+        status="success",
+        payload={"project_id": p_id, "name": payload.resolved_name()},
+        auth_header=authorization,
     )
     return format_project_response(project)
 
 
 @app.get("/api/v1/projects/{project_id}")
-def api_get_project(project_id: str, user_id: str = Depends(verify_creator_access)):
+def api_get_project(
+    project_id: str,
+    user_id: str = Depends(verify_creator_access),
+):
     project = get_project(project_id, user_id=user_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -322,19 +354,37 @@ def api_get_project(project_id: str, user_id: str = Depends(verify_creator_acces
 
 
 @app.put("/api/v1/projects/{project_id}")
-def api_update_project(project_id: str, payload: ProjectUpdatePayload, user_id: str = Depends(verify_creator_access)):
+def api_update_project(
+    project_id: str,
+    payload: ProjectUpdatePayload,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
     data = payload.resolved_dict()
-    updated = update_project(project_id, data, user_id=user_id)
+    updated = update_project(project_id, data, user_id=user_id, auth_header=authorization)
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
     return format_project_response(updated)
 
 
 @app.delete("/api/v1/projects/{project_id}")
-def api_delete_project(project_id: str, user_id: str = Depends(verify_creator_access)):
-    success = delete_project(project_id, user_id=user_id)
+def api_delete_project(
+    project_id: str,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
+    success = delete_project(project_id, user_id=user_id, auth_header=authorization)
     if not success:
         raise HTTPException(status_code=404, detail="Project not found")
+    log_audit_event_supabase(
+        user_id=user_id,
+        event_type="project_deleted",
+        entity_type="projects",
+        entity_id=project_id,
+        description=f"Deleted project {project_id}",
+        status="success",
+        auth_header=authorization,
+    )
     return {"deleted": True, "id": project_id}
 
 
@@ -450,7 +500,7 @@ def resolve_yt_redirect(requested_uri: Optional[str] = None) -> str:
     env_redirect = os.getenv("YOUTUBE_REDIRECT_URI", "").strip()
     if env_redirect and "onrender.com" not in env_redirect:
         return env_redirect.rstrip('/')
-    return "https://creator-ops-5x9u.vercel.app"
+    return "https://creator-ops-beta.vercel.app"
 
 
 @app.get("/api/youtube/login")
@@ -485,7 +535,11 @@ class AuthCallbackPayload(BaseModel):
 
 
 @app.post("/api/youtube/callback")
-def handle_yt_callback(payload: AuthCallbackPayload, user_id: str = Depends(optional_creator_access)):
+def handle_yt_callback(
+    payload: AuthCallbackPayload,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(optional_creator_access),
+):
     try:
         effective_redirect = resolve_yt_redirect(payload.redirect_uri)
         creds = process_oauth_callback(
@@ -509,6 +563,17 @@ def handle_yt_callback(payload: AuthCallbackPayload, user_id: str = Depends(opti
                 avatar_url=avatar,
                 subscriber_count=str(profile.get("subscriber_count", "0")),
                 video_count=str(profile.get("video_count", "0")),
+                auth_header=authorization,
+            )
+            log_audit_event_supabase(
+                user_id=user_id,
+                event_type="youtube_connected",
+                entity_type="youtube_channels",
+                entity_id=profile.get("channel_id"),
+                description=f"Connected YouTube channel: {profile.get('title', 'YouTube Channel')}",
+                status="success",
+                payload={"channel_id": profile.get("channel_id"), "title": profile.get("title")},
+                auth_header=authorization,
             )
         return {"status": "authenticated", "profile": profile}
     except Exception as e:
@@ -516,10 +581,13 @@ def handle_yt_callback(payload: AuthCallbackPayload, user_id: str = Depends(opti
 
 
 @app.get("/api/youtube/profile")
-def get_yt_profile(user_id: str = Depends(optional_creator_access)):
+def get_yt_profile(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(optional_creator_access),
+):
+    cached = get_channel_record(user_id=user_id, auth_header=authorization)
     creds = load_credentials()
     if not creds:
-        cached = get_channel_record(user_id=user_id)
         if cached:
             avatar = cached.get("avatar_url") or ""
             handle = cached.get("channel_handle") or ""
@@ -553,6 +621,7 @@ def get_yt_profile(user_id: str = Depends(optional_creator_access)):
             avatar_url=avatar,
             subscriber_count=str(profile.get("subscriber_count", "0")),
             video_count=str(profile.get("video_count", "0")),
+            auth_header=authorization,
         )
     return {"authenticated": bool(profile), "profile": profile}
 
@@ -568,10 +637,72 @@ def get_yt_user_videos(user_id: str = Depends(optional_creator_access)):
 
 @app.post("/api/youtube/clear")
 @app.post("/api/youtube/disconnect")
-def clear_yt_session(user_id: str = Depends(optional_creator_access)):
+def clear_yt_session(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(optional_creator_access),
+):
     clear_credentials()
-    delete_channel_record(user_id=user_id)
+    delete_channel_record(user_id=user_id, auth_header=authorization)
+    log_audit_event_supabase(
+        user_id=user_id,
+        event_type="youtube_disconnected",
+        entity_type="youtube_channels",
+        description="Disconnected YouTube channel integration",
+        status="success",
+        auth_header=authorization,
+    )
     return {"status": "signed_out"}
+
+
+# ==============================================================================
+# User Profile & Activity Endpoints
+# ==============================================================================
+
+@app.get("/api/v1/activity")
+def get_user_activity(
+    limit: int = 20,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
+    events = get_audit_events_supabase(user_id=user_id, limit=limit, auth_header=authorization)
+    return {"activities": events}
+
+
+@app.get("/api/v1/profile")
+def get_user_profile(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
+    profile = get_profile_supabase(user_id=user_id, auth_header=authorization)
+    return {"profile": profile}
+
+
+class ProfileUpdatePayload(BaseModel):
+    display_name: Optional[str] = None
+    username: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+
+
+@app.put("/api/v1/profile")
+def update_user_profile(
+    payload: ProfileUpdatePayload,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    user_id: str = Depends(verify_creator_access),
+):
+    data = payload.model_dump(exclude_unset=True)
+    updated = upsert_profile_supabase(user_id=user_id, updates=data, auth_header=authorization)
+    log_audit_event_supabase(
+        user_id=user_id,
+        event_type="profile_updated",
+        entity_type="profiles",
+        entity_id=user_id,
+        description="Updated creator profile details",
+        status="success",
+        payload=data,
+        auth_header=authorization,
+    )
+    return {"profile": updated}
 
 
 class UploadYouTubePayload(BaseModel):

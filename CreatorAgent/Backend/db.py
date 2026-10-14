@@ -16,6 +16,39 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("tubepilot.db")
 
+try:
+    from Backend.supabase_db import (
+        save_youtube_channel_supabase,
+        get_youtube_channel_supabase,
+        delete_youtube_channel_supabase,
+        save_project_supabase,
+        list_projects_supabase,
+        delete_project_supabase,
+        log_audit_event_supabase,
+        get_audit_events_supabase,
+    )
+except ImportError:
+    try:
+        from supabase_db import (
+            save_youtube_channel_supabase,
+            get_youtube_channel_supabase,
+            delete_youtube_channel_supabase,
+            save_project_supabase,
+            list_projects_supabase,
+            delete_project_supabase,
+            log_audit_event_supabase,
+            get_audit_events_supabase,
+        )
+    except ImportError:
+        save_youtube_channel_supabase = None
+        get_youtube_channel_supabase = None
+        delete_youtube_channel_supabase = None
+        save_project_supabase = None
+        list_projects_supabase = None
+        delete_project_supabase = None
+        log_audit_event_supabase = None
+        get_audit_events_supabase = None
+
 DB_DIR = Path(__file__).resolve().parent.parent / "data"
 DB_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DB_DIR / "tubepilot.db"
@@ -165,6 +198,7 @@ def create_project(
     instructions: str = "",
     metadata: Optional[Dict[str, Any]] = None,
     user_id: str = "default_user",
+    auth_header: Optional[str] = None,
 ) -> Dict[str, Any]:
     now = time.time()
     meta_str = json.dumps(metadata or {})
@@ -191,7 +225,15 @@ def create_project(
             ),
         )
         conn.commit()
-    return get_project(project_id)  # type: ignore
+
+    proj = get_project(project_id) or {}
+    if save_project_supabase and proj:
+        try:
+            save_project_supabase(proj, auth_header=auth_header)
+        except Exception as e:
+            logger.debug("Supabase save_project error: %s", e)
+
+    return proj
 
 
 def get_project(project_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -211,7 +253,17 @@ def get_project(project_id: str, user_id: Optional[str] = None) -> Optional[Dict
         return res
 
 
-def list_projects(limit: int = 50, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_projects(
+    limit: int = 50, user_id: Optional[str] = None, auth_header: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    if user_id and list_projects_supabase:
+        try:
+            supa_projects = list_projects_supabase(user_id=user_id, limit=limit, auth_header=auth_header)
+            if supa_projects is not None and len(supa_projects) > 0:
+                return supa_projects
+        except Exception as e:
+            logger.debug("Supabase list_projects error: %s", e)
+
     with get_db_connection() as conn:
         if user_id:
             rows = conn.execute(
@@ -232,7 +284,10 @@ def list_projects(limit: int = 50, user_id: Optional[str] = None) -> List[Dict[s
 
 
 def update_project(
-    project_id: str, updates: Dict[str, Any], user_id: Optional[str] = None
+    project_id: str,
+    updates: Dict[str, Any],
+    user_id: Optional[str] = None,
+    auth_header: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     current = get_project(project_id, user_id)
     if not current:
@@ -267,10 +322,25 @@ def update_project(
         conn.execute(f"UPDATE projects SET {', '.join(query_parts)} {where_clause}", tuple(params))
         conn.commit()
 
-    return get_project(project_id, user_id)
+    updated = get_project(project_id, user_id)
+    if save_project_supabase and updated:
+        try:
+            save_project_supabase(updated, auth_header=auth_header)
+        except Exception as e:
+            logger.debug("Supabase update_project sync error: %s", e)
+
+    return updated
 
 
-def delete_project(project_id: str, user_id: Optional[str] = None) -> bool:
+def delete_project(
+    project_id: str, user_id: Optional[str] = None, auth_header: Optional[str] = None
+) -> bool:
+    if user_id and delete_project_supabase:
+        try:
+            delete_project_supabase(project_id, user_id, auth_header=auth_header)
+        except Exception as e:
+            logger.debug("Supabase delete_project error: %s", e)
+
     with get_db_connection() as conn:
         if user_id:
             cur = conn.execute("DELETE FROM projects WHERE id = ? AND user_id = ?", (project_id, user_id))
@@ -400,6 +470,7 @@ def save_channel_record(
     avatar_url: Optional[str] = None,
     subscriber_count: str = "0",
     video_count: str = "0",
+    auth_header: Optional[str] = None,
 ) -> Dict[str, Any]:
     now = time.time()
     rec_id = f"yt_{channel_id}"
@@ -433,6 +504,22 @@ def save_channel_record(
         )
         conn.commit()
 
+    # Sync to Supabase Postgres
+    if save_youtube_channel_supabase:
+        try:
+            save_youtube_channel_supabase(
+                user_id=user_id,
+                channel_id=channel_id,
+                channel_title=channel_title,
+                channel_handle=channel_handle or "",
+                avatar_url=avatar_url or "",
+                subscriber_count=str(subscriber_count),
+                video_count=str(video_count),
+                auth_header=auth_header,
+            )
+        except Exception as e:
+            logger.debug("Failed to sync channel to Supabase: %s", e)
+
     return {
         "id": rec_id,
         "user_id": user_id,
@@ -445,7 +532,16 @@ def save_channel_record(
     }
 
 
-def get_channel_record(user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def get_channel_record(user_id: Optional[str] = None, auth_header: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    # Check Supabase first if user_id is provided
+    if user_id and get_youtube_channel_supabase:
+        try:
+            supa_rec = get_youtube_channel_supabase(user_id=user_id, auth_header=auth_header)
+            if supa_rec:
+                return supa_rec
+        except Exception as e:
+            logger.debug("Supabase get_channel error: %s", e)
+
     with get_db_connection() as conn:
         if user_id:
             row = conn.execute(
@@ -459,7 +555,13 @@ def get_channel_record(user_id: Optional[str] = None) -> Optional[Dict[str, Any]
         return dict(row) if row else None
 
 
-def delete_channel_record(user_id: Optional[str] = None) -> bool:
+def delete_channel_record(user_id: Optional[str] = None, auth_header: Optional[str] = None) -> bool:
+    if user_id and delete_youtube_channel_supabase:
+        try:
+            delete_youtube_channel_supabase(user_id=user_id, auth_header=auth_header)
+        except Exception as e:
+            logger.debug("Supabase delete_channel error: %s", e)
+
     with get_db_connection() as conn:
         if user_id:
             cur = conn.execute("DELETE FROM youtube_channels WHERE user_id = ?", (user_id,))

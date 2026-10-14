@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { YouTubeIcon } from './YouTubeIcon';
 import { api } from '../services/api';
-import { getCurrentUser, signOut } from '../utils/supabase';
+import { getCurrentUser, signOut, ensureProfile, getConnectedYouTubeChannel, type UserProfile } from '../utils/supabase';
 import { AuthModal } from './AuthModal';
 import type { YtProfile } from '../services/api';
 
@@ -40,6 +40,7 @@ export const DashboardLayout: React.FC = () => {
   const [ytProfile, setYtProfile] = useState<YtProfile | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isProtected, setIsProtected] = useState<boolean>(false);
   const [isUnlocked, setIsUnlocked] = useState<boolean>(true);
 
@@ -64,9 +65,16 @@ export const DashboardLayout: React.FC = () => {
     const handleChannelUpdate = () => {
       loadProfile();
     };
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        setUserProfile(e.detail);
+      }
+    };
     window.addEventListener('tubepilot:channel-updated', handleChannelUpdate);
+    window.addEventListener('tubepilot:profile-updated', handleProfileUpdate);
     return () => {
       window.removeEventListener('tubepilot:channel-updated', handleChannelUpdate);
+      window.removeEventListener('tubepilot:profile-updated', handleProfileUpdate);
     };
   }, []);
 
@@ -74,8 +82,15 @@ export const DashboardLayout: React.FC = () => {
     try {
       const user = await getCurrentUser();
       setCurrentUser(user);
+      if (user) {
+        const prof = await ensureProfile(user);
+        setUserProfile(prof);
+      } else {
+        setUserProfile(null);
+      }
     } catch {
       setCurrentUser(null);
+      setUserProfile(null);
     }
     try {
       const status = await api.getAuthStatus();
@@ -92,17 +107,43 @@ export const DashboardLayout: React.FC = () => {
   const loadProfile = async () => {
     try {
       const profile = await api.getYoutubeProfile();
-      setYtProfile(profile);
+      if (profile) {
+        setYtProfile(profile);
+        return;
+      }
     } catch {
-      setYtProfile(null);
+      // Fallback to Supabase direct
     }
+    try {
+      const user = await getCurrentUser();
+      if (user) {
+        const supaChannel = await getConnectedYouTubeChannel(user.id);
+        if (supaChannel) {
+          setYtProfile({
+            channel_id: supaChannel.channel_id,
+            title: supaChannel.channel_title,
+            handle: supaChannel.channel_handle,
+            avatar_url: supaChannel.avatar_url,
+            subscriber_count: supaChannel.subscriber_count,
+            video_count: supaChannel.video_count,
+          });
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    setYtProfile(null);
   };
 
   const handleSignOut = async () => {
     await signOut();
     localStorage.removeItem('tubepilot_supabase_token');
+    sessionStorage.removeItem('yt_code_verifier');
     api.clearCreatorKey();
     setCurrentUser(null);
+    setUserProfile(null);
+    setYtProfile(null);
     setIsUnlocked(false);
     setAuthModalOpen(true);
   };
@@ -318,15 +359,18 @@ export const DashboardLayout: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                 {(() => {
                   const userName =
+                    userProfile?.display_name ||
                     currentUser.user_metadata?.full_name ||
                     currentUser.user_metadata?.name ||
                     currentUser.user_metadata?.display_name ||
                     currentUser.email?.split('@')[0] ||
                     'Creator';
                   const userAvatar =
+                    userProfile?.avatar_url ||
                     currentUser.user_metadata?.avatar_url ||
                     currentUser.user_metadata?.picture ||
                     '';
+                  const userTag = userProfile?.username ? `@${userProfile.username}` : currentUser.email;
 
                   return (
                     <>
@@ -382,7 +426,7 @@ export const DashboardLayout: React.FC = () => {
                             }}
                             title={currentUser.email}
                           >
-                            {currentUser.email}
+                            {userTag}
                           </div>
                         </div>
                       )}

@@ -294,4 +294,21 @@ export const api = {
     const data = await request<{ history: PublishingRecord[] }>('/api/v1/publishing/history');
     return data.history || [];
   },
+
+  // User Profile & Activity
+  getUserProfile: async () => {
+    return request<{ profile: any }>('/api/v1/profile');
+  },
+
+  updateUserProfile: async (updates: { display_name?: string; username?: string; avatar_url?: string; bio?: string }) => {
+    return request<{ profile: any }>('/api/v1/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+  },
+
+  getUserActivity: async (limit: number = 20) => {
+    return request<{ activities: any[] }>(`/api/v1/activity?limit=${limit}`);
+  },
 };

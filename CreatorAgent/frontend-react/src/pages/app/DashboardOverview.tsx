@@ -19,11 +19,13 @@ import { YouTubeIcon } from '../../components/YouTubeIcon';
 import { CardSkeleton, TableSkeleton } from '../../components/skeletons';
 import { api } from '../../services/api';
 import type { Project, YtProfile, ProcessingJob } from '../../services/api';
+import { getCurrentUser, getConnectedYouTubeChannel, getAuditEvents, type AuditEventRecord } from '../../utils/supabase';
 
 export const DashboardOverview: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
   const [ytProfile, setYtProfile] = useState<YtProfile | null>(null);
+  const [activities, setActivities] = useState<AuditEventRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -40,7 +42,32 @@ export const DashboardOverview: React.FC = () => {
       ]);
       setProjects(projList);
       setJobs(jobList);
-      setYtProfile(profile);
+
+      if (profile) {
+        setYtProfile(profile);
+      } else {
+        // Fallback to Supabase
+        const user = await getCurrentUser().catch(() => null);
+        if (user) {
+          const supaChannel = await getConnectedYouTubeChannel(user.id);
+          if (supaChannel) {
+            setYtProfile({
+              channel_id: supaChannel.channel_id,
+              title: supaChannel.channel_title,
+              handle: supaChannel.channel_handle,
+              avatar_url: supaChannel.avatar_url,
+              subscriber_count: supaChannel.subscriber_count,
+              video_count: supaChannel.video_count,
+            });
+          } else {
+            setYtProfile(null);
+          }
+          const acts = await getAuditEvents(user.id, 5);
+          setActivities(acts);
+        } else {
+          setYtProfile(null);
+        }
+      }
     } finally {
       setLoading(false);
     }

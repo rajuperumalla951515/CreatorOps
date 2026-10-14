@@ -82,9 +82,12 @@ export interface AgentPlan {
 export interface YtProfile {
   title: string;
   handle?: string;
+  custom_url?: string;
   avatar_url?: string;
+  thumbnail_url?: string;
   subscriber_count: number | string;
   video_count: number | string;
+  view_count?: number | string;
   channel_id?: string;
   description?: string;
 }

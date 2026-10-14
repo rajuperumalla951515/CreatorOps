@@ -14,7 +14,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { getCurrentUser, signOut } from '../utils/supabase';
+import { getCurrentUser, signOut, ensureProfile, type UserProfile } from '../utils/supabase';
 import { AuthModal } from './AuthModal';
 import type { YtProfile } from '../types';
 
@@ -25,12 +25,24 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
   const [isUnlocked, setIsUnlocked] = useState(true);
   const [ytProfile, setYtProfile] = useState<YtProfile | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const location = useLocation();
 
   const loadUserData = () => {
     getCurrentUser()
-      .then((user) => setCurrentUser(user))
-      .catch(() => setCurrentUser(null));
+      .then(async (user) => {
+        setCurrentUser(user);
+        if (user) {
+          const prof = await ensureProfile(user);
+          setUserProfile(prof);
+        } else {
+          setUserProfile(null);
+        }
+      })
+      .catch(() => {
+        setCurrentUser(null);
+        setUserProfile(null);
+      });
 
     api.getAuthStatus()
       .then((res) => {
@@ -50,13 +62,24 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
 
   useEffect(() => {
     loadUserData();
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        setUserProfile(e.detail);
+      }
+    };
+    window.addEventListener('tubepilot:profile-updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('tubepilot:profile-updated', handleProfileUpdate);
+    };
   }, []);
 
   const handleSignOut = async () => {
     await signOut();
     localStorage.removeItem('tubepilot_supabase_token');
+    sessionStorage.removeItem('yt_code_verifier');
     api.clearCreatorKey();
     setCurrentUser(null);
+    setUserProfile(null);
     setIsUnlocked(false);
   };
 
@@ -184,17 +207,17 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
                   gap: '6px',
                   backgroundColor: 'var(--surface-secondary)',
                   border: '1px solid var(--border-subtle)',
-                  padding: '5px 10px',
+                  padding: '4px 10px',
                   borderRadius: '20px',
                   fontSize: '0.8rem',
                   color: '#FFFFFF',
                 }}
-                title={currentUser.email}
+                title={userProfile?.display_name || currentUser.email}
               >
                 <div
                   style={{
-                    width: '20px',
-                    height: '20px',
+                    width: '22px',
+                    height: '22px',
                     borderRadius: '50%',
                     backgroundColor: '#7C3AED',
                     display: 'flex',
@@ -202,12 +225,22 @@ export const Navbar: React.FC<{ onOpenAuthModal?: () => void }> = ({ onOpenAuthM
                     justifyContent: 'center',
                     fontSize: '0.68rem',
                     fontWeight: 700,
+                    overflow: 'hidden',
                   }}
                 >
-                  {(currentUser.email || 'U')[0].toUpperCase()}
+                  {userProfile?.avatar_url ? (
+                    <img
+                      src={userProfile.avatar_url}
+                      alt="Avatar"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    (userProfile?.display_name || currentUser.email || 'U')[0].toUpperCase()
+                  )}
                 </div>
                 <span className="hide-mobile" style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {currentUser.email}
+                  {userProfile?.display_name || currentUser.email}
                 </span>
               </div>
               <button

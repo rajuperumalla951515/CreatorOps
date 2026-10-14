@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
+import { supabase, getCurrentUser, logAuditEvent } from '../utils/supabase';
 import { CheckCircle2, AlertTriangle, X, Loader2 } from 'lucide-react';
 
 interface NotificationState {
@@ -52,9 +53,44 @@ export const OAuthHandler: React.FC = () => {
 
       api
         .handleYoutubeCallback(code, redirectUri, verifier)
-        .then((res) => {
+        .then(async (res) => {
           sessionStorage.removeItem('yt_code_verifier');
           const channelTitle = res?.profile?.title || 'YouTube Channel';
+
+          // Persist directly to Supabase with authenticated session
+          try {
+            const user = await getCurrentUser();
+            if (user && res?.profile?.channel_id) {
+              const recId = `yt_${user.id.slice(0, 8)}_${res.profile.channel_id}`;
+              await supabase.from('youtube_channels').upsert(
+                {
+                  id: recId,
+                  user_id: user.id,
+                  channel_id: res.profile.channel_id,
+                  channel_title: channelTitle,
+                  channel_handle: res.profile.handle || res.profile.custom_url || '',
+                  avatar_url: res.profile.avatar_url || res.profile.thumbnail_url || '',
+                  subscriber_count: String(res.profile.subscriber_count || '0'),
+                  video_count: String(res.profile.video_count || '0'),
+                  view_count: String(res.profile.view_count || '0'),
+                  status: 'active',
+                },
+                { onConflict: 'user_id,channel_id' }
+              );
+
+              await logAuditEvent({
+                userId: user.id,
+                eventType: 'youtube_connected',
+                entityType: 'youtube_channels',
+                entityId: res.profile.channel_id,
+                description: `Connected YouTube channel: ${channelTitle}`,
+                status: 'success',
+                payload: { channel_id: res.profile.channel_id, title: channelTitle },
+              });
+            }
+          } catch (syncErr) {
+            console.debug('Direct Supabase channel sync skipped:', syncErr);
+          }
 
           setNotification({
             type: 'success',

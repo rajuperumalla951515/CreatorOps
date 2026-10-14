@@ -11,6 +11,7 @@ import {
 import { YouTubeIcon } from '../../components/YouTubeIcon';
 import { api } from '../../services/api';
 import type { YtProfile } from '../../services/api';
+import { getCurrentUser, getConnectedYouTubeChannel, supabase, logAuditEvent } from '../../utils/supabase';
 
 const API_BASE = (
   import.meta.env.VITE_API_BASE !== undefined
@@ -22,7 +23,6 @@ export const ConnectedAccounts: React.FC = () => {
   const [profile, setProfile] = useState<YtProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isDisconnecting, setIsDisconnecting] = useState<boolean>(false);
-
   const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
@@ -40,12 +40,38 @@ export const ConnectedAccounts: React.FC = () => {
     setLoading(true);
     try {
       const data = await api.getYoutubeProfile();
-      setProfile(data);
+      if (data) {
+        setProfile(data);
+        setLoading(false);
+        return;
+      }
     } catch {
-      setProfile(null);
-    } finally {
-      setLoading(false);
+      // Fallback to Supabase direct
     }
+
+    try {
+      const user = await getCurrentUser();
+      if (user) {
+        const supaChannel = await getConnectedYouTubeChannel(user.id);
+        if (supaChannel) {
+          setProfile({
+            channel_id: supaChannel.channel_id,
+            title: supaChannel.channel_title,
+            handle: supaChannel.channel_handle,
+            avatar_url: supaChannel.avatar_url,
+            subscriber_count: supaChannel.subscriber_count,
+            video_count: supaChannel.video_count,
+          });
+          setLoading(false);
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    setProfile(null);
+    setLoading(false);
   };
 
   const handleConnect = async () => {
@@ -77,7 +103,18 @@ export const ConnectedAccounts: React.FC = () => {
     if (!confirm('Are you sure you want to disconnect this YouTube channel?')) return;
     setIsDisconnecting(true);
     try {
-      await api.disconnectYoutube();
+      await api.disconnectYoutube().catch(() => {});
+      const user = await getCurrentUser();
+      if (user) {
+        await supabase.from('youtube_channels').delete().eq('user_id', user.id);
+        await logAuditEvent({
+          userId: user.id,
+          eventType: 'youtube_disconnected',
+          entityType: 'youtube_channels',
+          description: 'Disconnected YouTube channel from Connected Accounts',
+          status: 'success',
+        });
+      }
       setProfile(null);
       window.dispatchEvent(new CustomEvent('tubepilot:channel-updated', { detail: null }));
     } catch {
