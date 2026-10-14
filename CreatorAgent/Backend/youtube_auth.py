@@ -155,8 +155,9 @@ def process_oauth_callback(
     client_secret: Optional[str] = None,
     redirect_uri: str = "http://localhost:5173",
     code_verifier: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Credentials:
-    """Exchange authorization code for OAuth tokens and save them with PKCE support."""
+    """Exchange authorization code for OAuth tokens and save them with PKCE support and user isolation."""
     flow = get_oauth_flow(client_id, client_secret, redirect_uri)
     
     verifier = code_verifier
@@ -173,7 +174,7 @@ def process_oauth_callback(
 
     flow.fetch_token(code=code.strip())
     creds = flow.credentials
-    save_credentials(creds)
+    save_credentials(creds, user_id=user_id)
 
     if VERIFIER_FILE_PATH.exists():
         try:
@@ -184,8 +185,8 @@ def process_oauth_callback(
     return creds
 
 
-def save_credentials(creds: Credentials) -> None:
-    """Save user credentials to local token storage."""
+def save_credentials(creds: Credentials, user_id: Optional[str] = None) -> None:
+    """Save user credentials to local token storage with per-user isolation."""
     ensure_credentials_dir()
     data = {
         "token": creds.token,
@@ -194,23 +195,52 @@ def save_credentials(creds: Credentials) -> None:
         "client_id": creds.client_id,
         "client_secret": creds.client_secret,
         "scopes": creds.scopes,
+        "user_id": str(user_id) if user_id else None,
     }
-    with open(TOKEN_FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
 
-
-def load_credentials() -> Optional[Credentials]:
-    """Load stored user OAuth credentials from environment variable or file storage."""
-    data = None
-    # 1. Allow injection via YOUTUBE_TOKEN_JSON environment variable (great for container cloud deploys)
-    env_token = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
-    if env_token:
+    # Save to user-specific token file if user_id provided
+    if user_id and str(user_id).strip():
+        safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
+        user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
         try:
-            data = json.loads(env_token)
+            with open(user_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
         except Exception:
             pass
 
-    # 2. Check local token file
+    # Save to default token file for backward compatibility
+    try:
+        with open(TOKEN_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def load_credentials(user_id: Optional[str] = None) -> Optional[Credentials]:
+    """Load stored user OAuth credentials from user-specific store, environment, or default file."""
+    data = None
+
+    # 1. Check user-specific token file if user_id is provided
+    if user_id and str(user_id).strip():
+        safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
+        user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
+        if user_file.exists():
+            try:
+                with open(user_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+
+    # 2. Allow injection via YOUTUBE_TOKEN_JSON environment variable (great for container cloud deploys)
+    if not data:
+        env_token = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
+        if env_token:
+            try:
+                data = json.loads(env_token)
+            except Exception:
+                pass
+
+    # 3. Check default local token file
     if not data and TOKEN_FILE_PATH.exists():
         try:
             with open(TOKEN_FILE_PATH, "r", encoding="utf-8") as f:
@@ -233,7 +263,7 @@ def load_credentials() -> Optional[Credentials]:
         if creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
-                save_credentials(creds)
+                save_credentials(creds, user_id=user_id)
             except Exception:
                 pass
         return creds
@@ -241,13 +271,23 @@ def load_credentials() -> Optional[Credentials]:
         return None
 
 
-def clear_credentials() -> None:
-    """Remove saved YouTube OAuth tokens."""
+def clear_credentials(user_id: Optional[str] = None) -> None:
+    """Remove saved YouTube OAuth tokens for the user and default store."""
+    if user_id and str(user_id).strip():
+        safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
+        user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
+        if user_file.exists():
+            try:
+                user_file.unlink()
+            except Exception:
+                pass
+
     if TOKEN_FILE_PATH.exists():
         try:
             TOKEN_FILE_PATH.unlink()
         except Exception:
             pass
+
     if VERIFIER_FILE_PATH.exists():
         try:
             VERIFIER_FILE_PATH.unlink()

@@ -47,12 +47,11 @@ from Backend.supabase_db import (
 
 
 class TestUserDataIntegrity(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.client = TestClient(app)
-        # Unique test user UUIDs for isolation
-        cls.user_a = str(uuid.uuid4())
-        cls.user_b = str(uuid.uuid4())
+    def setUp(self):
+        self.client = TestClient(app)
+        # Fresh unique test user UUIDs for each test to ensure complete test isolation
+        self.user_a = str(uuid.uuid4())
+        self.user_b = str(uuid.uuid4())
 
     # 1. A new authenticated user gets exactly one profile
     def test_01_new_user_gets_one_profile(self):

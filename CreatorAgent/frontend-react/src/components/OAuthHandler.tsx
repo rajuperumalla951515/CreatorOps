@@ -23,20 +23,31 @@ export const OAuthHandler: React.FC = () => {
 
     // 1. Google OAuth Error / User Cancelled
     if (error) {
-      const errorMsg =
-        error === 'access_denied'
-          ? 'YouTube channel authorization was cancelled by user.'
-          : `Google OAuth error: ${error}`;
+      let errorTitle = 'Authorization Failed';
+      let errorMsg = `Google OAuth error: ${error}`;
+
+      if (error === 'access_denied') {
+        errorTitle = 'Access Denied / Cancelled';
+        errorMsg =
+          'YouTube connection was cancelled, or your Google account is not on the authorized Test Users list in Google Cloud Console. Once the app completes Google verification or is moved to In Production, any user can connect.';
+      } else if (error === 'redirect_uri_mismatch') {
+        errorTitle = 'Redirect URI Mismatch';
+        errorMsg =
+          `The current domain (${window.location.origin}) is not listed in Authorized redirect URIs in Google Cloud Console. Please add it to your OAuth 2.0 Web Client.`;
+      } else if (error === 'invalid_client') {
+        errorTitle = 'Invalid OAuth Client';
+        errorMsg = 'Google Cloud Client ID or secret is invalid or deleted. Check your .env configuration.';
+      }
 
       setNotification({
         type: 'warning',
-        title: 'Authorization Cancelled',
+        title: errorTitle,
         message: errorMsg,
       });
 
       // Clean query params from browser URL bar
       window.history.replaceState({}, document.title, window.location.pathname);
-      const timer = setTimeout(() => setNotification(null), 5000);
+      const timer = setTimeout(() => setNotification(null), 8000);
       return () => clearTimeout(timer);
     }
 

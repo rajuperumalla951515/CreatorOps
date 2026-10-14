@@ -546,6 +546,7 @@ def handle_yt_callback(
             code=payload.code,
             redirect_uri=effective_redirect,
             code_verifier=payload.code_verifier,
+            user_id=user_id,
         )
         profile = fetch_channel_profile(creds=creds)
         if profile and profile.get("channel_id"):
@@ -586,7 +587,7 @@ def get_yt_profile(
     user_id: str = Depends(optional_creator_access),
 ):
     cached = get_channel_record(user_id=user_id, auth_header=authorization)
-    creds = load_credentials()
+    creds = load_credentials(user_id=user_id)
     if not creds:
         if cached:
             avatar = cached.get("avatar_url") or ""
@@ -628,7 +629,7 @@ def get_yt_profile(
 
 @app.get("/api/youtube/user-videos")
 def get_yt_user_videos(user_id: str = Depends(optional_creator_access)):
-    creds = load_credentials()
+    creds = load_credentials(user_id=user_id)
     if not creds:
         return {"videos": []}
     videos = fetch_user_videos(creds=creds, max_results=12)
@@ -641,7 +642,7 @@ def clear_yt_session(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     user_id: str = Depends(optional_creator_access),
 ):
-    clear_credentials()
+    clear_credentials(user_id=user_id)
     delete_channel_record(user_id=user_id, auth_header=authorization)
     log_audit_event_supabase(
         user_id=user_id,

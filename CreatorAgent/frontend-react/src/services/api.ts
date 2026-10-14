@@ -230,7 +230,8 @@ export const api = {
   ): Promise<{ auth_url: string; code_verifier?: string }> => {
     const params = new URLSearchParams();
     if (state) params.set('state', state);
-    params.set('redirect_uri', redirectUri || window.location.origin);
+    const effectiveUri = (redirectUri || window.location.origin).replace(/\/$/, '');
+    params.set('redirect_uri', effectiveUri);
     const queryString = `?${params.toString()}`;
     return request<{ auth_url: string; code_verifier?: string }>(`/api/youtube/auth-url${queryString}`);
   },
@@ -240,12 +241,13 @@ export const api = {
     redirectUri?: string,
     codeVerifier?: string
   ): Promise<{ status: string; profile: YtProfile }> => {
+    const effectiveUri = (redirectUri || window.location.origin).replace(/\/$/, '');
     return request<{ status: string; profile: YtProfile }>('/api/youtube/callback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         code,
-        redirect_uri: redirectUri || `${window.location.origin}`,
+        redirect_uri: effectiveUri,
         code_verifier: codeVerifier,
       }),
     });

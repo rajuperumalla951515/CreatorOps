@@ -473,7 +473,7 @@ def save_channel_record(
     auth_header: Optional[str] = None,
 ) -> Dict[str, Any]:
     now = time.time()
-    rec_id = f"yt_{channel_id}"
+    rec_id = f"yt_{str(user_id)[:8]}_{channel_id}"
     with get_db_connection() as conn:
         conn.execute(
             """
@@ -482,6 +482,7 @@ def save_channel_record(
                 avatar_url, subscriber_count, video_count, connected_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                user_id = excluded.user_id,
                 channel_title = excluded.channel_title,
                 channel_handle = excluded.channel_handle,
                 avatar_url = excluded.avatar_url,
