@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger("tubepilot.youtube_auth")
 
 # Relax strict oauthlib scope equality check when Google includes OpenID/profile scopes
 os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
@@ -186,30 +189,41 @@ def process_oauth_callback(
 
 
 def save_credentials(creds: Credentials, user_id: Optional[str] = None) -> None:
-    """Save user credentials to local token storage with per-user isolation."""
-    ensure_credentials_dir()
+    """Save user credentials to secure Supabase database and local store with per-user isolation."""
     data = {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
         "token_uri": creds.token_uri,
-        "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
-        "scopes": creds.scopes,
+        "client_id": creds.client_id or get_client_id(),
+        "client_secret": creds.client_secret or get_client_secret(),
+        "scopes": creds.scopes or YOUTUBE_SCOPES,
         "user_id": str(user_id) if user_id else None,
     }
 
-    # Save to user-specific token file if user_id provided
+    # 1. Primary: Save to Supabase user_oauth_tokens table (protected by service_role RLS)
     if user_id and str(user_id).strip():
-        safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
-        user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
         try:
+            from Backend.supabase_db import save_oauth_tokens_supabase
+            saved_in_db = save_oauth_tokens_supabase(
+                user_id=str(user_id).strip(),
+                token_data=data,
+                provider="google",
+                scopes=creds.scopes,
+            )
+            if saved_in_db:
+                logger.info("Successfully persisted YouTube OAuth tokens to Supabase for user.")
+        except Exception as db_err:
+            logger.debug("Could not persist OAuth token to Supabase (falling back to local): %s", db_err)
+
+    # 2. Secondary: Local token files for local dev fallback
+    try:
+        ensure_credentials_dir()
+        if user_id and str(user_id).strip():
+            safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
+            user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
             with open(user_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-        except Exception:
-            pass
 
-    # Save to default token file for backward compatibility
-    try:
         with open(TOKEN_FILE_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception:
@@ -217,11 +231,21 @@ def save_credentials(creds: Credentials, user_id: Optional[str] = None) -> None:
 
 
 def load_credentials(user_id: Optional[str] = None) -> Optional[Credentials]:
-    """Load stored user OAuth credentials from user-specific store, environment, or default file."""
+    """Load stored user OAuth credentials from Supabase, user-specific store, environment, or default file."""
     data = None
 
-    # 1. Check user-specific token file if user_id is provided
+    # 1. Primary: Query Supabase public.user_oauth_tokens if user_id is provided
     if user_id and str(user_id).strip():
+        try:
+            from Backend.supabase_db import get_oauth_tokens_supabase
+            db_tokens = get_oauth_tokens_supabase(user_id=str(user_id).strip(), provider="google")
+            if db_tokens and isinstance(db_tokens, dict) and db_tokens.get("refresh_token"):
+                data = db_tokens
+        except Exception as db_err:
+            logger.debug("Could not query OAuth tokens from Supabase: %s", db_err)
+
+    # 2. Check user-specific token file if user_id is provided
+    if not data and user_id and str(user_id).strip():
         safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
         user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
         if user_file.exists():
@@ -231,7 +255,7 @@ def load_credentials(user_id: Optional[str] = None) -> Optional[Credentials]:
             except Exception:
                 pass
 
-    # 2. Allow injection via YOUTUBE_TOKEN_JSON environment variable (great for container cloud deploys)
+    # 3. Allow injection via YOUTUBE_TOKEN_JSON environment variable (great for container cloud deploys)
     if not data:
         env_token = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
         if env_token:
@@ -240,7 +264,7 @@ def load_credentials(user_id: Optional[str] = None) -> Optional[Credentials]:
             except Exception:
                 pass
 
-    # 3. Check default local token file
+    # 4. Check default local token file
     if not data and TOKEN_FILE_PATH.exists():
         try:
             with open(TOKEN_FILE_PATH, "r", encoding="utf-8") as f:
@@ -272,8 +296,16 @@ def load_credentials(user_id: Optional[str] = None) -> Optional[Credentials]:
 
 
 def clear_credentials(user_id: Optional[str] = None) -> None:
-    """Remove saved YouTube OAuth tokens for the user and default store."""
+    """Remove saved YouTube OAuth tokens from Supabase, user file, and default store."""
     if user_id and str(user_id).strip():
+        # Clear from Supabase
+        try:
+            from Backend.supabase_db import delete_oauth_tokens_supabase
+            delete_oauth_tokens_supabase(user_id=str(user_id).strip(), provider="google")
+        except Exception:
+            pass
+
+        # Clear user local file
         safe_uid = "".join(c for c in str(user_id) if c.isalnum() or c in "-_")
         user_file = TOKEN_STORE_DIR / f"youtube_token_{safe_uid}.json"
         if user_file.exists():

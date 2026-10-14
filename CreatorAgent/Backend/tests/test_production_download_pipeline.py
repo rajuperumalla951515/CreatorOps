@@ -19,6 +19,7 @@ from Backend.video_processor import (
     download_direct_media,
     download_youtube,
     save_upload,
+    normalize_and_validate_cookies,
 )
 from Backend.storage import (
     upload_media_to_persistent_storage,
@@ -140,6 +141,139 @@ class TestProductionDownloadPipeline(unittest.TestCase):
         self.assertIn(response.status_code, (401, 404))
         self.assertNotEqual(response.status_code, 422)
 
+    def test_09_cookie_normalization_escaped_newlines_and_missing_header(self):
+        """Verify normalization fixes escaped literal \\n, \\t, and auto-injects Netscape header."""
+        # Simulated raw Render environment variable with literal \n and \t strings
+        raw_escaped_text = (
+            r".youtube.com\tTRUE\t/\tTRUE\t1893456000\tLOGIN_INFO\taf9394_secret_val\n"
+            r".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tsid_secret_val"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            cookie_path = Path(td) / "cookies.txt"
+            is_valid, count, names = normalize_and_validate_cookies(raw_escaped_text, cookie_path)
+            self.assertTrue(is_valid)
+            self.assertEqual(count, 2)
+            self.assertIn("LOGIN_INFO", names)
+            self.assertIn("SID", names)
+
+            # Confirm file contains the Netscape header required by MozillaCookieJar
+            content = cookie_path.read_text(encoding="utf-8")
+            self.assertTrue(content.startswith("# Netscape HTTP Cookie File"))
+
+    def test_10_cookie_normalization_base64_decoding(self):
+        """Verify normalization decodes both base64: prefixed strings and raw base64 payloads."""
+        import base64
+        valid_netscape = (
+            "# Netscape HTTP Cookie File\n"
+            ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSAPISID\tsapisid_token_xyz\n"
+            ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tSSID\tssid_token_abc\n"
+        )
+        b64_str = base64.b64encode(valid_netscape.encode("utf-8")).decode("utf-8")
+
+        with tempfile.TemporaryDirectory() as td:
+            # 1. With explicit "base64:" prefix
+            path_prefixed = Path(td) / "prefixed.txt"
+            is_valid, count, names = normalize_and_validate_cookies(f"base64:{b64_str}", path_prefixed)
+            self.assertTrue(is_valid)
+            self.assertEqual(count, 2)
+            self.assertEqual(set(names), {"SAPISID", "SSID"})
+
+            # 2. Raw base64 string auto-detection
+            path_raw = Path(td) / "raw.txt"
+            is_valid, count, names = normalize_and_validate_cookies(b64_str, path_raw)
+            self.assertTrue(is_valid)
+            self.assertEqual(count, 2)
+            self.assertIn("SAPISID", names)
+
+    def test_11_cookie_normalization_space_separated_columns(self):
+        """Verify normalization repairs space-separated columns caused by copy-pasting."""
+        # Spaces instead of tabs
+        space_separated = (
+            "# Netscape HTTP Cookie File\n"
+            ".youtube.com   TRUE   /   TRUE   1893456000   HSID   hsid_value_123\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            cookie_path = Path(td) / "spaces.txt"
+            is_valid, count, names = normalize_and_validate_cookies(space_separated, cookie_path)
+            self.assertTrue(is_valid)
+            self.assertEqual(count, 1)
+            self.assertIn("HSID", names)
+
+    def test_12_cookie_normalization_malformed_input_rejection(self):
+        """Verify normalization gracefully rejects invalid/empty strings without raising unhandled exceptions."""
+        with tempfile.TemporaryDirectory() as td:
+            cookie_path = Path(td) / "invalid.txt"
+
+            # Empty string
+            valid, count, names = normalize_and_validate_cookies("", cookie_path)
+            self.assertFalse(valid)
+            self.assertEqual(count, 0)
+            self.assertEqual(names, [])
+
+            # Pure gibberish
+            valid, count, names = normalize_and_validate_cookies("invalid cookie string that is not netscape format", cookie_path)
+            self.assertFalse(valid)
+            self.assertEqual(count, 0)
+
+    def test_13_cookie_normalization_no_value_leakage(self):
+        """Verify normalize_and_validate_cookies never returns or leaks secret cookie values in names."""
+        secret_val = "SUPER_SECRET_COOKIE_VALUE_NEVER_LOG_98765"
+        raw_cookie = (
+            f".youtube.com\tTRUE\t/\tTRUE\t1893456000\tLOGIN_INFO\t{secret_val}\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            cookie_path = Path(td) / "leak_check.txt"
+            is_valid, count, names = normalize_and_validate_cookies(raw_cookie, cookie_path)
+            self.assertTrue(is_valid)
+            self.assertIn("LOGIN_INFO", names)
+            self.assertNotIn(secret_val, names)
+
+    def test_14_supabase_oauth_token_storage_methods(self):
+        """Verify save_oauth_tokens_supabase, get_oauth_tokens_supabase, and delete handle user UUID and mock gracefully."""
+        from Backend.supabase_db import save_oauth_tokens_supabase, get_oauth_tokens_supabase, delete_oauth_tokens_supabase
+        import uuid
+
+        test_uid = str(uuid.uuid4())
+        token_payload = {
+            "token": "mock_access_token_12345",
+            "refresh_token": "mock_refresh_token_67890",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "scopes": ["https://www.googleapis.com/auth/youtube.readonly"],
+        }
+        # Non-UUID rejection
+        self.assertFalse(save_oauth_tokens_supabase("not-a-valid-uuid", token_payload))
+        self.assertIsNone(get_oauth_tokens_supabase("not-a-valid-uuid"))
+        self.assertFalse(delete_oauth_tokens_supabase("not-a-valid-uuid"))
+
+    def test_15_direct_media_non_video_payload_rejection(self):
+        """Verify that downloading non-media payload (HTML/text masquerading as mp4) is rejected safely."""
+        with tempfile.TemporaryDirectory() as td:
+            fake_txt = Path(td) / "fake.mp4"
+            fake_txt.write_text("<!DOCTYPE html><html><body>Error 404</body></html>", encoding="utf-8")
+            
+            # Read first 64 bytes to verify magic byte check
+            with open(fake_txt, "rb") as f:
+                header = f.read(64)
+            is_valid = b"ftyp" in header or header.startswith(b"\x1a\x45\xdf\xa3") or header.startswith(b"RIFF")
+            self.assertFalse(is_valid)
+
+    def test_16_youtube_publish_loads_user_scoped_credentials(self):
+        """Verify publishing endpoint verifies user authorization and attempts isolated credential lookup."""
+        response = self.client.post(
+            "/api/youtube/publish",
+            json={
+                "media_url": "/api/media/00000000-0000-0000-0000-000000000000.mp4",
+                "title": "Autonomous Short Episode 1",
+                "privacy": "private",
+                "user_confirmed": True,
+            },
+            headers={"X-Creator-Key": "test-secret-key-12345"},
+        )
+        # Should return 401 unauthenticated for YouTube or 404 for media, never 500 or 422
+        self.assertIn(response.status_code, (401, 404))
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

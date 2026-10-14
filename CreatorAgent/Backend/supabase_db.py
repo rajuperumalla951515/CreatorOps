@@ -240,6 +240,101 @@ def delete_youtube_channel_supabase(
 
 
 # ==============================================================================
+# 2B. SECURE OAUTH TOKEN STORAGE (Service-Role Protected)
+# ==============================================================================
+
+def save_oauth_tokens_supabase(
+    user_id: str,
+    token_data: Dict[str, Any],
+    provider: str = "google",
+    scopes: Optional[List[str]] = None,
+) -> bool:
+    """
+    Persist user OAuth tokens securely in Supabase public.user_oauth_tokens.
+    Protected by service_role RLS so credentials can never be queried by frontend clients.
+    """
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    try:
+        uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        logger.debug("Skipping OAuth token save for non-UUID user_id: %s", user_id)
+        return False
+
+    rec_id = f"tok_{user_id[:8]}_{provider}"
+    payload = {
+        "id": rec_id,
+        "user_id": user_id,
+        "provider": provider,
+        "token_data": token_data,
+        "scopes": scopes or token_data.get("scopes", []),
+        "updated_at": "now()",
+    }
+
+    try:
+        client.table("user_oauth_tokens").upsert(
+            payload, on_conflict="user_id,provider"
+        ).execute()
+        logger.info("Persisted %s OAuth credentials securely in Supabase for user %s", provider, user_id[:8])
+        return True
+    except Exception as e:
+        logger.debug("Supabase save_oauth_tokens_supabase error (falling back to local): %s", e)
+        return False
+
+
+def get_oauth_tokens_supabase(
+    user_id: str, provider: str = "google"
+) -> Optional[Dict[str, Any]]:
+    """Retrieve stored OAuth tokens for user from Supabase public.user_oauth_tokens."""
+    client = get_supabase_client()
+    if not client:
+        return None
+
+    try:
+        uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        return None
+
+    try:
+        res = (
+            client.table("user_oauth_tokens")
+            .select("token_data, scopes")
+            .eq("user_id", user_id)
+            .eq("provider", provider)
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0].get("token_data")
+        return None
+    except Exception as e:
+        logger.debug("Supabase get_oauth_tokens_supabase error: %s", e)
+        return None
+
+
+def delete_oauth_tokens_supabase(user_id: str, provider: str = "google") -> bool:
+    """Remove stored OAuth tokens for user from Supabase upon disconnect."""
+    client = get_supabase_client()
+    if not client:
+        return False
+
+    try:
+        uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        return False
+
+    try:
+        client.table("user_oauth_tokens").delete().eq("user_id", user_id).eq("provider", provider).execute()
+        return True
+    except Exception as e:
+        logger.debug("Supabase delete_oauth_tokens_supabase error: %s", e)
+        return False
+
+
+
+# ==============================================================================
 # 3. USER ACTIVITY & AUDIT EVENTS
 # ==============================================================================
 

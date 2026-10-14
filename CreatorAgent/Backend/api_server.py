@@ -732,7 +732,7 @@ def upload_master_to_yt(payload: UploadYouTubePayload, user_id: str = Depends(ve
     if not payload.user_confirmed:
         raise HTTPException(status_code=400, detail="Explicit user confirmation required before publishing.")
 
-    creds = load_credentials()
+    creds = load_credentials(user_id=user_id)
     if not creds:
         raise HTTPException(status_code=401, detail="YouTube account not authenticated.")
 
@@ -764,6 +764,8 @@ def upload_master_to_yt(payload: UploadYouTubePayload, user_id: str = Depends(ve
         description=payload.description,
         privacy_status=payload.privacy,
         is_short=True,
+        creds=creds,
+        user_id=user_id,
     )
 
     rec_id = f"pub_{uuid.uuid4().hex[:10]}"

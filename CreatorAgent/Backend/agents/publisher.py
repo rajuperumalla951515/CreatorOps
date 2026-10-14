@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from google.oauth2.credentials import Credentials
 from Backend.youtube_auth import load_credentials, upload_video_to_youtube
 
 
@@ -47,17 +48,19 @@ class PublishingAgent:
         tags: Optional[List[str]] = None,
         privacy_status: str = "public",
         is_short: bool = True,
+        creds: Optional[Credentials] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Perform authorized video upload via YouTube Data API v3."""
-        creds = load_credentials()
-        if not creds:
+        """Perform authorized video upload via YouTube Data API v3 with user isolation."""
+        effective_creds = creds or load_credentials(user_id=user_id)
+        if not effective_creds:
             return {
                 "success": False,
                 "error": "YouTube account not authenticated.",
             }
 
         success, res_msg = upload_video_to_youtube(
-            creds=creds,
+            creds=effective_creds,
             file_path=media_file,
             title=title,
             description=description,

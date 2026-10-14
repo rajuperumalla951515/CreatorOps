@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
+import http.cookiejar
 import ipaddress
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -160,35 +163,69 @@ def download_direct_media(
     if progress_callback:
         progress_callback("[download] Connecting to direct media source...")
 
+    def on_redirect_response(response: httpx.Response) -> None:
+        """Validate redirect destinations to prevent SSRF bypass via 301/302 redirects."""
+        if response.is_redirect:
+            loc = response.headers.get("Location")
+            if loc:
+                resolved = urllib.parse.urljoin(str(response.url), loc)
+                validate_media_url(resolved)
+
     downloaded = 0
-    with httpx.stream("GET", clean_url, headers=headers, follow_redirects=True, timeout=90.0) as resp:
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Direct media source responded with HTTP {resp.status_code}: {resp.reason_phrase}")
+    with httpx.Client(
+        headers=headers,
+        follow_redirects=True,
+        timeout=90.0,
+        event_hooks={"response": [on_redirect_response]},
+    ) as client:
+        with client.stream("GET", clean_url) as resp:
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Direct media source responded with HTTP {resp.status_code}: {resp.reason_phrase}")
 
-        content_len_str = resp.headers.get("content-length")
-        total_bytes = int(content_len_str) if content_len_str and content_len_str.isdigit() else 0
+            content_len_str = resp.headers.get("content-length")
+            total_bytes = int(content_len_str) if content_len_str and content_len_str.isdigit() else 0
 
-        if total_bytes > MAX_DIRECT_DOWNLOAD_BYTES:
-            raise ValueError(
-                f"File size exceeds maximum allowed limit ({total_bytes // (1024*1024)}MB > {MAX_DIRECT_DOWNLOAD_BYTES // (1024*1024)}MB)."
-            )
+            if total_bytes > MAX_DIRECT_DOWNLOAD_BYTES:
+                raise ValueError(
+                    f"File size exceeds maximum allowed limit ({total_bytes // (1024*1024)}MB > {MAX_DIRECT_DOWNLOAD_BYTES // (1024*1024)}MB)."
+                )
 
-        with open(raw_dest, "wb") as f:
-            for chunk in resp.iter_bytes(chunk_size=512 * 1024):
-                f.write(chunk)
-                downloaded += len(chunk)
-                if downloaded > MAX_DIRECT_DOWNLOAD_BYTES:
-                    raw_dest.unlink(missing_ok=True)
-                    raise ValueError(f"Download aborted: file exceeds {MAX_DIRECT_DOWNLOAD_BYTES // (1024*1024)}MB limit.")
+            with open(raw_dest, "wb") as f:
+                for chunk in resp.iter_bytes(chunk_size=512 * 1024):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if downloaded > MAX_DIRECT_DOWNLOAD_BYTES:
+                        raw_dest.unlink(missing_ok=True)
+                        raise ValueError(f"Download aborted: file exceeds {MAX_DIRECT_DOWNLOAD_BYTES // (1024*1024)}MB limit.")
 
-                if progress_callback and total_bytes > 0:
-                    pct = (downloaded / total_bytes) * 100
-                    mb_down = downloaded / (1024 * 1024)
-                    mb_total = total_bytes / (1024 * 1024)
-                    progress_callback(f"[download] {pct:5.1f}% of {mb_total:.1f}MB ({mb_down:.1f}MB downloaded)")
+                    if progress_callback and total_bytes > 0:
+                        pct = (downloaded / total_bytes) * 100
+                        mb_down = downloaded / (1024 * 1024)
+                        mb_total = total_bytes / (1024 * 1024)
+                        progress_callback(f"[download] {pct:5.1f}% of {mb_total:.1f}MB ({mb_down:.1f}MB downloaded)")
 
     if not raw_dest.exists() or raw_dest.stat().st_size == 0:
         raise RuntimeError("Direct media download produced an empty file.")
+
+    # Validate container header / magic bytes
+    with open(raw_dest, "rb") as sample_f:
+        header_sample = sample_f.read(64)
+
+    is_valid_media = (
+        b"ftyp" in header_sample
+        or header_sample.startswith(b"\x1a\x45\xdf\xa3")  # WebM / MKV
+        or header_sample.startswith(b"RIFF")  # AVI
+        or header_sample.startswith(b"OggS")  # OGG
+        or header_sample.startswith(b"\x00\x00\x01\xba")  # MPEG
+        or header_sample.startswith(b"G")  # MPEG-TS
+        or b"moov" in header_sample
+    )
+    if not is_valid_media:
+        raw_dest.unlink(missing_ok=True)
+        raise ValueError(
+            "The direct URL did not return a valid video stream (unrecognized container header). "
+            "Please verify the URL points directly to an MP4, WebM, or MOV file."
+        )
 
     # Trim segment if requested
     use_trim = (start_seconds > 0.0) or (end_seconds is not None and end_seconds > start_seconds)
@@ -219,6 +256,101 @@ def download_direct_media(
 
 
 # ==============================================================================
+# Cookie Normalization & Validation Helper
+# ==============================================================================
+
+def normalize_and_validate_cookies(raw_text: str, output_path: Path) -> tuple[bool, int, list[str]]:
+    """
+    Safely parses, normalizes, and validates Netscape HTTP Cookie format text.
+    Handles:
+    - Base64 encoding (e.g. `base64:...` prefix or raw base64 string).
+    - Escaped newlines (\\r\\n, \\n) and escaped tabs (\\t).
+    - Space-separated columns instead of tabs.
+    - Missing '# Netscape HTTP Cookie File' header.
+    - Wrapping quotes added by cloud secret managers.
+
+    Returns:
+        (is_valid: bool, cookie_count: int, detected_cookie_names: list[str])
+    """
+    text = (raw_text or "").strip()
+    if not text:
+        return (False, 0, [])
+
+    # Strip wrapping quotes if entire string was quoted in environment variable
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        text = text[1:-1].strip()
+
+    # 1. Base64 auto-detection
+    if text.startswith("base64:"):
+        try:
+            text = base64.b64decode(text[7:]).decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.warning("Failed to decode base64: prefix in cookie text: %s", e)
+    elif not any(c in text for c in ("\n", "\t", " ")) and len(text) > 40:
+        try:
+            decoded = base64.b64decode(text).decode("utf-8", errors="ignore")
+            if "youtube" in decoded.lower() or "cookie" in decoded.lower() or "\t" in decoded:
+                text = decoded
+        except Exception:
+            pass
+
+    # 2. Unescape literal escaped backslash characters
+    if "\\n" in text and "\n" not in text:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+    if "\\t" in text and "\t" not in text:
+        text = text.replace("\\t", "\t")
+
+    lines = text.splitlines()
+    cleaned_lines: list[str] = []
+    has_header = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "netscape" in stripped.lower():
+            has_header = True
+            cleaned_lines.append("# Netscape HTTP Cookie File")
+            continue
+        if stripped.startswith("#"):
+            cleaned_lines.append(stripped)
+            continue
+
+        # If line has tabs, keep clean tab-separated format
+        if "\t" in stripped:
+            parts = stripped.split("\t")
+            if len(parts) >= 7:
+                cleaned_lines.append("\t".join(p.strip() for p in parts[:7]))
+                continue
+
+        # If spaces were used instead of tabs by copy-paste or editor
+        parts = re.split(r"\s+", stripped)
+        if len(parts) >= 7:
+            col7 = "\t".join(parts[:6] + [" ".join(parts[6:])])
+            cleaned_lines.append(col7)
+        else:
+            cleaned_lines.append(stripped)
+
+    if not has_header:
+        cleaned_lines.insert(0, "# Netscape HTTP Cookie File")
+        cleaned_lines.insert(1, "# Generated by CreatorOps")
+
+    content = "\n".join(cleaned_lines) + "\n"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(content, encoding="utf-8")
+
+    # 3. Validate with standard MozillaCookieJar
+    try:
+        cj = http.cookiejar.MozillaCookieJar(str(output_path))
+        cj.load(ignore_discard=True, ignore_expires=True)
+        cookie_names = [c.name for c in cj]
+        return (len(cookie_names) > 0, len(cookie_names), cookie_names)
+    except Exception as val_err:
+        logger.warning("Cookie file failed validation check: %s", val_err)
+        return (False, 0, [])
+
+
+# ==============================================================================
 # YouTube & Universal Media Downloader
 # ==============================================================================
 
@@ -237,7 +369,7 @@ def download_youtube(
     Downloads video from YouTube or any supported platform URL.
     - Routes direct media URLs to download_direct_media.
     - Applies SSRF protection and security validation.
-    - For YouTube: uses prioritized player clients (android/ios/mweb) to bypass datacenter bot detection.
+    - For YouTube: uses normalized cookies (Netscape or Base64), PO token, and prioritized clients.
     - Fallback to segment trimming with FFmpeg if range downloading is unavailable.
     """
     clean_url = validate_media_url(url)
@@ -261,6 +393,13 @@ def download_youtube(
     if ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
+    effective_user_agent = (
+        os.getenv("YOUTUBE_USER_AGENT", "").strip()
+        or user_agent
+        or DEFAULT_USER_AGENT
+    )
+    po_token = os.getenv("YOUTUBE_PO_TOKEN", "").strip()
+
     base_options = {
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
@@ -271,7 +410,7 @@ def download_youtube(
         "no_warnings": True,
         "geo_bypass": True,
         "http_headers": {
-            "User-Agent": user_agent or DEFAULT_USER_AGENT,
+            "User-Agent": effective_user_agent,
             "Accept-Language": "en-US,en;q=0.9",
         },
     }
@@ -297,6 +436,8 @@ def download_youtube(
 
     # Discover cookie source
     primary_cookie_source: tuple[str, str] | None = None
+    cookie_diagnostic_err: str | None = None
+
     if cookie_file and cookie_file.exists():
         primary_cookie_source = ("file", str(cookie_file))
     elif browser and browser.lower() != "none":
@@ -307,12 +448,14 @@ def download_youtube(
         if env_ck_file and Path(env_ck_file).exists():
             primary_cookie_source = ("file", str(Path(env_ck_file).resolve()))
         elif env_ck_text:
-            try:
-                env_cookie_path = output_dir / "env_cookies.txt"
-                env_cookie_path.write_text(env_ck_text, encoding="utf-8")
+            env_cookie_path = output_dir / "env_cookies.txt"
+            is_valid, count, cookie_names = normalize_and_validate_cookies(env_ck_text, env_cookie_path)
+            if is_valid and count > 0:
                 primary_cookie_source = ("file", str(env_cookie_path))
-            except Exception:
-                pass
+                logger.info("Successfully loaded %d valid cookies from YOUTUBE_COOKIES_TEXT for YouTube authentication.", count)
+            else:
+                cookie_diagnostic_err = "YOUTUBE_COOKIES_TEXT is configured but contains 0 valid Netscape cookies or has an invalid format."
+                logger.warning(cookie_diagnostic_err)
         else:
             default_ck = Path(__file__).parent / "default_cookies.txt"
             if default_ck.exists():
@@ -328,6 +471,9 @@ def download_youtube(
                 opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(s, e)])
         if is_yt and player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
+        if is_yt and po_token:
+            ext_args = opts.setdefault("extractor_args", {}).setdefault("youtube", {})
+            ext_args["po_token"] = [f"web+{po_token}", f"mweb+{po_token}"]
         if cookie_source:
             kind, val = cookie_source
             if kind == "file":
@@ -343,6 +489,7 @@ def download_youtube(
         if primary_cookie_source:
             attempts.append(make_opts(primary_cookie_source, "web", use_range=True))
             attempts.append(make_opts(primary_cookie_source, "android", use_range=False))
+            attempts.append(make_opts(primary_cookie_source, "ios", use_range=False))
 
         # Tier 2: Android client alone (consistently bypasses datacenter bot detection on cloud servers)
         attempts.append(make_opts(None, "android", use_range=True))
@@ -389,7 +536,7 @@ def download_youtube(
                 "-m",
                 "yt_dlp",
                 "--format",
-                "bv*+ba/b",
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                 "--merge-output-format",
                 "mp4",
                 "--output",
@@ -398,8 +545,15 @@ def download_youtube(
                 "--quiet",
                 "--no-warnings",
             ]
+            if primary_cookie_source and primary_cookie_source[0] == "file":
+                cmd.extend(["--cookies", primary_cookie_source[1]])
             if is_yt:
-                cmd.extend(["--extractor-args", "youtube:player_client=android"])
+                if primary_cookie_source:
+                    cmd.extend(["--extractor-args", "youtube:player_client=web,android"])
+                else:
+                    cmd.extend(["--extractor-args", "youtube:player_client=android"])
+            if is_yt and po_token:
+                cmd.extend(["--extractor-args", f"youtube:po_token=web+{po_token}"])
             cmd.append(clean_url)
             subprocess.run(cmd, check=True, capture_output=True)
             matches = list(output_dir.glob(f"{filename_prefix}.*"))
@@ -407,12 +561,24 @@ def download_youtube(
                 downloaded = matches[0]
         except Exception as error:
             raw_err = str(last_exception or error)
-            if "Sign in to confirm you’re not a bot" in raw_err or "bot" in raw_err.lower():
-                raise RuntimeError(
-                    "YouTube bot protection blocked this request on the cloud server. "
-                    "To download YouTube videos in production, set YOUTUBE_COOKIES_TEXT in Render environment variables, "
-                    "or enter a direct video URL (MP4/WebM/MOV)."
-                ) from error
+            if "Sign in to confirm you’re not a bot" in raw_err or "bot" in raw_err.lower() or "login" in raw_err.lower():
+                if cookie_diagnostic_err:
+                    raise RuntimeError(
+                        f"YouTube bot protection blocked this request: {cookie_diagnostic_err} "
+                        "Please verify the cookie text in YOUTUBE_COOKIES_TEXT, or enter a direct video URL (MP4/WebM/MOV)."
+                    ) from error
+                elif primary_cookie_source:
+                    raise RuntimeError(
+                        "YouTube rejected the session cookies on Render (cookies may be expired, invalid, or flagged). "
+                        "Export fresh cookies from your logged-in YouTube browser session and update YOUTUBE_COOKIES_TEXT, "
+                        "or enter a direct video URL (MP4/WebM/MOV)."
+                    ) from error
+                else:
+                    raise RuntimeError(
+                        "YouTube bot protection blocked this request on the cloud server. "
+                        "To download YouTube videos in production, set YOUTUBE_COOKIES_TEXT in Render environment variables, "
+                        "or enter a direct video URL (MP4/WebM/MOV)."
+                    ) from error
             elif "Private video" in raw_err or "Video unavailable" in raw_err:
                 raise RuntimeError("Video is private, removed, or geo-restricted.") from error
             else:
