@@ -1,3 +1,9 @@
+"""FastAPI entry point for the CreatorOps production API.
+
+Routes in this module authenticate requests, coordinate agents and media
+processing, persist job state, and serve the built React application.
+"""
+
 from __future__ import annotations
 
 import json

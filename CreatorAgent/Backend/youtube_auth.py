@@ -1,3 +1,5 @@
+"""Google OAuth and YouTube channel/publishing integration."""
+
 from __future__ import annotations
 
 import json

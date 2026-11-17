@@ -1,3 +1,10 @@
+"""Media ingestion and FFmpeg rendering pipeline.
+
+This module is shared by the FastAPI server, the Streamlit editor, and the
+editing agents. It validates remote media destinations, handles uploads and
+downloads, and produces the requested video composition.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -931,4 +938,3 @@ def estimate_processing_time(
         "total_est": total_est,
         "human_readable": human_readable,
     }
-

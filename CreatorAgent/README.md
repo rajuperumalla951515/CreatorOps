@@ -1,6 +1,7 @@
-# CreatorOps Video Agent
+# CreatorAgent
 
-A Streamlit video-editing agent that downloads an authorized YouTube video or accepts an upload, trims it, reframes it to a custom ratio, adds an optional video layer, and mixes in background music.
+CreatorAgent contains the application runtime for CreatorOps: the Python
+backend, the optional Streamlit editor, and the React dashboard.
 
 ## Features
 
@@ -9,6 +10,18 @@ A Streamlit video-editing agent that downloads an authorized YouTube video or ac
 - Custom `9:16`, `16:9`, and `1:1` exports
 - FFmpeg-powered trimming, compositing, scaling, and audio mixing
 - Preview and download of the final MP4
+
+## Directory guide
+
+- `Backend/` - FastAPI application, media pipeline, persistence, OAuth, agents,
+  and tests. See [Backend/README.md](Backend/README.md).
+- `Frontend/` - optional Streamlit editing UI. See
+  [Frontend/README.md](Frontend/README.md).
+- `frontend-react/` - primary React + TypeScript dashboard. See
+  [frontend-react/README.md](frontend-react/README.md).
+- `media/` and `media_output/` - local working and output files; ignored by
+  Git.
+- `data/` - local SQLite data; ignored by Git.
 
 ## Installation
 
@@ -28,6 +41,7 @@ streamlit run Frontend/app.py
 
 Open `Backend/video_agent.ipynb` in VS Code, set the source and editing options in the configuration cell, then run the cells in order. The notebook uses the same backend processor as the Streamlit app and writes the result to `media/creatorops-notebook-final.mp4`.
 
-The editor does not require API keys. Use footage and music you own or have permission to edit. YouTube downloads must follow applicable terms.
+The editor does not require API keys. Use footage and music you own or have
+permission to edit. YouTube downloads must follow applicable terms.
 
 If YouTube displays “Sign in to confirm you are not a bot”, open and refresh the video in your signed-in browser, solve any CAPTCHA, then close the browser before starting the download. Choose that browser in the **YouTube sign-in** setting so `yt-dlp` can read its local cookies. For persistent blocks, paste the same browser User-Agent into the optional field. This option is intended for local use; browser cookies are sensitive and should never be committed or uploaded.

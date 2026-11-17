@@ -1,3 +1,5 @@
+"""Streamlit editing interface backed by the shared CreatorOps services."""
+
 from __future__ import annotations
 
 import importlib
